@@ -8,7 +8,7 @@ import { PeriodRangeFilter, type PeriodSelection } from "@/components/finance/pe
 import { getDashboardSummaryForRangeAction } from "@/features/dashboard/actions";
 import { getPresetRange } from "@/lib/period";
 import { monthRange, toDateInputValue } from "@/lib/date";
-import { formatCurrency, formatDate } from "@/lib/format";
+import { formatCurrency, formatTransactionDate } from "@/lib/format";
 import type { TransactionKind } from "@/generated/prisma/client";
 
 type CategoryTotal = { name: string; total: number };
@@ -116,7 +116,7 @@ export function DashboardOverview({
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium">{t.description || t.categoryName}</p>
                       <p className="text-xs text-muted-foreground">
-                        {t.categoryName} · {formatDate(t.date)}
+                        {t.categoryName} · {formatTransactionDate(t.date)}
                       </p>
                     </div>
                     <span
