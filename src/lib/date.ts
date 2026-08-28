@@ -11,6 +11,16 @@ export function toDateInputValue(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
+// Para fechas de transacción, guardadas como medianoche UTC: hay que leer
+// el día calendario con getters UTC para no correrlo según la zona horaria
+// del navegador (mismo motivo que formatTransactionDate en lib/format.ts).
+export function toUTCDateInputValue(date: Date) {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export function parseMonthParam(month?: string) {
   const now = new Date();
   if (month && /^\d{4}-\d{2}$/.test(month)) {

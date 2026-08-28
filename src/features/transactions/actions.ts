@@ -49,6 +49,29 @@ export async function createTransaction(_prevState: ActionState, formData: FormD
   return null;
 }
 
+export async function updateTransactionDate(
+  transactionId: string,
+  _prevState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const userId = await requireUserId();
+
+  const dateRaw = String(formData.get("date") ?? "");
+  if (!dateRaw) return { error: "La fecha es obligatoria." };
+
+  const date = parseDateOnly(dateRaw);
+  if (!date) return { error: "La fecha no es válida." };
+
+  const result = await prisma.transaction.updateMany({
+    where: { id: transactionId, userId },
+    data: { date },
+  });
+  if (result.count === 0) return { error: "No se pudo actualizar el movimiento." };
+
+  revalidateAll();
+  return null;
+}
+
 export async function deleteTransaction(transactionId: string) {
   const userId = await requireUserId();
   await prisma.transaction.deleteMany({ where: { id: transactionId, userId } });

@@ -8,12 +8,13 @@ import {
 } from "@/components/ui/table";
 import { MonthNav } from "@/components/finance/month-nav";
 import { ConfirmDeleteButton } from "@/components/finance/confirm-delete-button";
+import { EditTransactionDialog } from "@/components/finance/edit-transaction-dialog";
 import { TransactionFormDialog } from "@/components/finance/transaction-form-dialog";
 import { getAccounts } from "@/features/accounts/queries";
 import { getCategories } from "@/features/categories/queries";
 import { deleteTransaction } from "@/features/transactions/actions";
 import { getTransactionsForMonth } from "@/features/transactions/queries";
-import { parseMonthParam } from "@/lib/date";
+import { parseMonthParam, toUTCDateInputValue } from "@/lib/date";
 import { formatCurrency, formatTransactionDate } from "@/lib/format";
 
 export default async function TransaccionesPage({
@@ -53,7 +54,7 @@ export default async function TransaccionesPage({
             <TableHead>Categoría</TableHead>
             <TableHead className="hidden sm:table-cell">Cuenta</TableHead>
             <TableHead className="text-right">Monto</TableHead>
-            <TableHead className="w-10" />
+            <TableHead className="w-20" />
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -79,11 +80,17 @@ export default async function TransaccionesPage({
                   {formatCurrency(t.amount)}
                 </TableCell>
                 <TableCell>
-                  <ConfirmDeleteButton
-                    title="¿Eliminar este movimiento?"
-                    description="Esta acción no se puede deshacer."
-                    onConfirm={deleteTransaction.bind(null, t.id)}
-                  />
+                  <div className="flex items-center justify-end">
+                    <EditTransactionDialog
+                      transactionId={t.id}
+                      currentDate={toUTCDateInputValue(t.date)}
+                    />
+                    <ConfirmDeleteButton
+                      title="¿Eliminar este movimiento?"
+                      description="Esta acción no se puede deshacer."
+                      onConfirm={deleteTransaction.bind(null, t.id)}
+                    />
+                  </div>
                 </TableCell>
               </TableRow>
             ))
