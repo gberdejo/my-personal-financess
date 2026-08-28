@@ -21,12 +21,16 @@ export function formatDate(date: Date) {
 // elegido en el formulario). Se formatean en UTC para que no varíen según
 // la zona horaria del navegador de quien las mira.
 const transactionDateFormatter = new Intl.DateTimeFormat("es-PE", {
-  day: "2-digit",
+  weekday: "long",
+  day: "numeric",
   month: "short",
   year: "numeric",
   timeZone: "UTC",
 });
 
 export function formatTransactionDate(date: Date) {
-  return transactionDateFormatter.format(date);
+  const parts = transactionDateFormatter.formatToParts(date);
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+  return `${get("weekday")} ${get("day")} de ${get("month")} ${get("year")}`;
 }
