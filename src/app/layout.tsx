@@ -23,6 +23,7 @@ const robotoMono = Roboto_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://my-personal-financess-production.up.railway.app"),
   title: "Finanzas Personales",
   description: "Gestión de finanzas personales",
 };
