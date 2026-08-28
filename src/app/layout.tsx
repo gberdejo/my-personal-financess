@@ -1,17 +1,24 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Karla, Newsreader, Roboto_Mono } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const karla = Karla({
+  variable: "--font-sans",
   subsets: ["latin"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const newsreader = Newsreader({
+  variable: "--font-serif",
+  subsets: ["latin"],
+  style: ["normal", "italic"],
+  weight: ["400", "500", "600"],
+});
+
+const robotoMono = Roboto_Mono({
+  variable: "--font-mono",
   subsets: ["latin"],
 });
 
@@ -26,14 +33,14 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       afterSignOutUrl="/sign-in"
       appearance={{
         variables: {
-          colorPrimary: "#18181b",
-          borderRadius: "0.625rem",
+          colorPrimary: "#0e6e63",
+          borderRadius: "0.85rem",
         },
       }}
     >
       <html
         lang="es"
-        className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+        className={`${karla.variable} ${newsreader.variable} ${robotoMono.variable} h-full antialiased`}
       >
         <body className="min-h-full flex flex-col">
           <TooltipProvider>

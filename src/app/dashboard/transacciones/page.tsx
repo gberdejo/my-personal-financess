@@ -34,7 +34,7 @@ export default async function TransaccionesPage({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-semibold">Transacciones</h1>
+        <h1 className="font-heading text-2xl font-medium italic md:text-3xl">Transacciones</h1>
         <div className="flex flex-wrap items-center gap-2">
           <MonthNav year={year} month={month} />
           <TransactionFormDialog
@@ -71,8 +71,8 @@ export default async function TransaccionesPage({
                 <TableCell>{t.categoryName}</TableCell>
                 <TableCell className="hidden sm:table-cell">{t.accountName}</TableCell>
                 <TableCell
-                  className={`text-right font-medium whitespace-nowrap ${
-                    t.kind === "INCOME" ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"
+                  className={`text-right font-medium tabular-nums whitespace-nowrap ${
+                    t.kind === "INCOME" ? "text-income" : "text-expense"
                   }`}
                 >
                   {t.kind === "INCOME" ? "+" : "-"}

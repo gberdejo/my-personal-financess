@@ -12,7 +12,7 @@ export default async function CuentasPage() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold">Cuentas</h1>
+        <h1 className="font-heading text-2xl font-medium italic md:text-3xl">Cuentas</h1>
         <AccountFormDialog />
       </div>
 
@@ -42,7 +42,7 @@ export default async function CuentasPage() {
               </CardHeader>
               <div className="px-6 pb-6">
                 <span
-                  className={`text-2xl font-semibold ${account.balance < 0 ? "text-destructive" : ""}`}
+                  className={`text-2xl font-semibold tabular-nums ${account.balance < 0 ? "text-expense" : ""}`}
                 >
                   {formatCurrency(account.balance)}
                 </span>

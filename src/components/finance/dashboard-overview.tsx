@@ -63,7 +63,7 @@ export function DashboardOverview({
   return (
     <div className={`flex flex-col gap-4 transition-opacity ${isPending ? "opacity-60" : ""}`}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-semibold">Resumen</h1>
+        <h1 className="font-heading text-2xl font-medium italic md:text-3xl">Resumen</h1>
         <PeriodRangeFilter value={selection} onApply={setSelection} />
       </div>
 
@@ -71,7 +71,7 @@ export function DashboardOverview({
         <Card>
           <CardHeader>
             <CardDescription>Balance del periodo</CardDescription>
-            <CardTitle className={`text-2xl ${summary.balance < 0 ? "text-destructive" : ""}`}>
+            <CardTitle className={`font-sans text-2xl not-italic font-semibold tabular-nums ${summary.balance < 0 ? "text-expense" : ""}`}>
               {formatCurrency(summary.balance)}
             </CardTitle>
           </CardHeader>
@@ -79,7 +79,7 @@ export function DashboardOverview({
         <Card>
           <CardHeader>
             <CardDescription>Ingresos</CardDescription>
-            <CardTitle className="text-2xl text-emerald-600 dark:text-emerald-400">
+            <CardTitle className="font-sans text-2xl not-italic font-semibold tabular-nums text-income">
               {formatCurrency(summary.income)}
             </CardTitle>
           </CardHeader>
@@ -87,7 +87,9 @@ export function DashboardOverview({
         <Card>
           <CardHeader>
             <CardDescription>Gastos</CardDescription>
-            <CardTitle className="text-2xl text-destructive">{formatCurrency(summary.expense)}</CardTitle>
+            <CardTitle className="font-sans text-2xl not-italic font-semibold tabular-nums text-expense">
+              {formatCurrency(summary.expense)}
+            </CardTitle>
           </CardHeader>
         </Card>
       </div>
@@ -118,8 +120,8 @@ export function DashboardOverview({
                       </p>
                     </div>
                     <span
-                      className={`shrink-0 text-sm font-medium ${
-                        t.kind === "INCOME" ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"
+                      className={`shrink-0 text-sm font-medium tabular-nums ${
+                        t.kind === "INCOME" ? "text-income" : "text-expense"
                       }`}
                     >
                       {t.kind === "INCOME" ? "+" : "-"}

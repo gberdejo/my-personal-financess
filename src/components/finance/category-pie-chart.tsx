@@ -36,31 +36,37 @@ export function CategoryPieChart({ data }: { data: CategoryTotal[] }) {
           <p className="text-sm text-muted-foreground">No hay gastos registrados en este periodo.</p>
         ) : (
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-            <ChartContainer config={chartConfig} className="mx-auto aspect-square max-h-56 w-full sm:w-1/2">
-              <PieChart>
-                <ChartTooltip
-                  content={
-                    <ChartTooltipContent
-                      hideLabel
-                      nameKey="name"
-                      formatter={(value, name) => (
-                        <div className="flex w-full items-center justify-between gap-4">
-                          <span className="text-muted-foreground">{name}</span>
-                          <span className="font-mono font-medium tabular-nums">
-                            {formatCurrency(Number(value))}
-                          </span>
-                        </div>
-                      )}
-                    />
-                  }
-                />
-                <Pie data={chartData} dataKey="total" nameKey="name" innerRadius={50} outerRadius={90} paddingAngle={2} strokeWidth={2}>
-                  {chartData.map((entry) => (
-                    <Cell key={entry.name} fill={entry.fill} />
-                  ))}
-                </Pie>
-              </PieChart>
-            </ChartContainer>
+            <div className="relative mx-auto aspect-square max-h-56 w-full sm:w-1/2">
+              <ChartContainer config={chartConfig} className="aspect-square size-full">
+                <PieChart>
+                  <ChartTooltip
+                    content={
+                      <ChartTooltipContent
+                        hideLabel
+                        nameKey="name"
+                        formatter={(value, name) => (
+                          <div className="flex w-full items-center justify-between gap-4">
+                            <span className="text-muted-foreground">{name}</span>
+                            <span className="font-mono font-medium tabular-nums">
+                              {formatCurrency(Number(value))}
+                            </span>
+                          </div>
+                        )}
+                      />
+                    }
+                  />
+                  <Pie data={chartData} dataKey="total" nameKey="name" innerRadius={60} outerRadius={100} paddingAngle={2} strokeWidth={2}>
+                    {chartData.map((entry) => (
+                      <Cell key={entry.name} fill={entry.fill} />
+                    ))}
+                  </Pie>
+                </PieChart>
+              </ChartContainer>
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                <span className="font-sans text-base font-semibold tabular-nums">{formatCurrency(total)}</span>
+                <span className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">Total</span>
+              </div>
+            </div>
 
             <div className="flex flex-1 flex-col gap-2">
               {data.map((item, index) => {

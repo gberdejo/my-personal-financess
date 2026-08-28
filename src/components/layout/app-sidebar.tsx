@@ -20,13 +20,11 @@ import {
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const { isMobile, setOpenMobile, setOpen } = useSidebar();
+  const { isMobile, setOpenMobile } = useSidebar();
 
   function closeSidebar() {
     if (isMobile) {
       setOpenMobile(false);
-    } else {
-      setOpen(false);
     }
   }
 
@@ -34,8 +32,8 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarHeader>
         <div className="flex items-center gap-2 px-2 py-1.5">
-          <Landmark className="size-5" />
-          <span className="font-semibold">Finanzas Personales</span>
+          <Landmark className="size-5 text-primary" />
+          <span className="font-heading text-[15px] font-medium italic">Finanzas Personales</span>
         </div>
       </SidebarHeader>
       <SidebarContent>
@@ -45,7 +43,11 @@ export function AppSidebar() {
             <SidebarMenu>
               {NAV_ITEMS.map((item) => (
                 <SidebarMenuItem key={item.url}>
-                  <SidebarMenuButton asChild isActive={pathname === item.url}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === item.url}
+                    className="rounded-full font-medium data-active:bg-primary data-active:text-primary-foreground data-active:hover:bg-primary/90 [&_svg]:data-active:text-primary-foreground"
+                  >
                     <Link href={item.url} onClick={closeSidebar}>
                       <item.icon />
                       <span>{item.title}</span>

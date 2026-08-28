@@ -3,7 +3,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 export default function PresupuestosPage() {
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-2xl font-semibold">Presupuestos</h1>
+      <h1 className="font-heading text-2xl font-medium italic md:text-3xl">Presupuestos</h1>
       <Card>
         <CardHeader>
           <CardTitle>Sin presupuestos todavía</CardTitle>
