@@ -15,10 +15,20 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@/components/ui/sidebar";
 
 export function AppSidebar() {
   const pathname = usePathname();
+  const { isMobile, setOpenMobile, setOpen } = useSidebar();
+
+  function closeSidebar() {
+    if (isMobile) {
+      setOpenMobile(false);
+    } else {
+      setOpen(false);
+    }
+  }
 
   return (
     <Sidebar>
@@ -36,7 +46,7 @@ export function AppSidebar() {
               {NAV_ITEMS.map((item) => (
                 <SidebarMenuItem key={item.url}>
                   <SidebarMenuButton asChild isActive={pathname === item.url}>
-                    <Link href={item.url}>
+                    <Link href={item.url} onClick={closeSidebar}>
                       <item.icon />
                       <span>{item.title}</span>
                     </Link>
