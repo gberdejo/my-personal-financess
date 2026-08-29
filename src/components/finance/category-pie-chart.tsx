@@ -36,7 +36,7 @@ export function CategoryPieChart({ data }: { data: CategoryTotal[] }) {
           <p className="text-sm text-muted-foreground">No hay gastos registrados en este periodo.</p>
         ) : (
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-            <div className="relative mx-auto aspect-square max-h-56 w-full sm:w-1/2">
+            <div className="relative mx-auto aspect-square max-h-56 w-full max-w-56 sm:w-1/2">
               <ChartContainer config={chartConfig} className="aspect-square size-full">
                 <PieChart>
                   <ChartTooltip
