@@ -1,6 +1,6 @@
 export function parseDateOnly(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const date = new Date(`${value}T00:00:00`);
+  const date = new Date(`${value}T00:00:00Z`);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
@@ -31,8 +31,8 @@ export function parseMonthParam(month?: string) {
 }
 
 export function monthRange(year: number, month: number) {
-  const start = new Date(year, month - 1, 1);
-  const end = new Date(year, month, 1);
+  const start = new Date(Date.UTC(year, month - 1, 1));
+  const end = new Date(Date.UTC(year, month, 1));
   return { start, end };
 }
 
@@ -56,15 +56,15 @@ export function shiftMonth(year: number, month: number, delta: number) {
 }
 
 export function dayRange(date: Date) {
-  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const start = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
   const end = new Date(start);
-  end.setDate(end.getDate() + 1);
+  end.setUTCDate(end.getUTCDate() + 1);
   return { start, end };
 }
 
 export function shiftDay(date: Date, delta: number) {
   const result = new Date(date);
-  result.setDate(result.getDate() + delta);
+  result.setUTCDate(result.getUTCDate() + delta);
   return result;
 }
 
@@ -81,12 +81,12 @@ export function dayLabel(date: Date) {
 
 // Semana calendario: lunes a domingo.
 export function weekRange(date: Date) {
-  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const dayOfWeek = start.getDay();
+  const start = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayOfWeek = start.getUTCDay();
   const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-  start.setDate(start.getDate() + diffToMonday);
+  start.setUTCDate(start.getUTCDate() + diffToMonday);
   const end = new Date(start);
-  end.setDate(end.getDate() + 7);
+  end.setUTCDate(end.getUTCDate() + 7);
   return { start, end };
 }
 

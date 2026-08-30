@@ -11,6 +11,7 @@ const dateFormatter = new Intl.DateTimeFormat("es-PE", {
   day: "2-digit",
   month: "short",
   year: "numeric",
+  timeZone: "UTC",
 });
 
 export function formatDate(date: Date) {

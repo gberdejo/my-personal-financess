@@ -7,7 +7,7 @@ import { CategoryPieChart } from "@/components/finance/category-pie-chart";
 import { PeriodRangeFilter, type PeriodSelection } from "@/components/finance/period-range-filter";
 import { getDashboardSummaryForRangeAction } from "@/features/dashboard/actions";
 import { getPresetRange } from "@/lib/period";
-import { monthRange, toDateInputValue } from "@/lib/date";
+import { monthRange, toDateInputValue, toUTCDateInputValue } from "@/lib/date";
 import { formatCurrency, formatTransactionDate } from "@/lib/format";
 import type { TransactionKind } from "@/generated/prisma/client";
 
@@ -40,7 +40,7 @@ export function DashboardOverview({
 }) {
   const [selection, setSelection] = useState<PeriodSelection>({
     preset: "thisMonth",
-    customStart: toDateInputValue(monthRange(initialYear, initialMonth).start),
+    customStart: toUTCDateInputValue(monthRange(initialYear, initialMonth).start),
     customEnd: toDateInputValue(new Date()),
   });
   const [summary, setSummary] = useState<Summary>(initialSummary);
