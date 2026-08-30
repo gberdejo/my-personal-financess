@@ -36,3 +36,35 @@ export async function createCategory(
     throw error;
   }
 }
+
+export type RenameCategoryState = { error?: string } | null;
+
+export async function renameCategory(
+  categoryId: string,
+  _prevState: RenameCategoryState,
+  formData: FormData
+): Promise<RenameCategoryState> {
+  const userId = await requireUserId();
+
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) return { error: "El nombre es obligatorio." };
+
+  try {
+    const result = await prisma.category.updateMany({
+      where: { id: categoryId, userId },
+      data: { name },
+    });
+    if (result.count === 0) return { error: "No se pudo renombrar la categoría." };
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return { error: "Ya tenés una categoría con ese nombre." };
+    }
+    throw error;
+  }
+
+  revalidatePath("/dashboard/categorias");
+  revalidatePath("/dashboard/transacciones");
+  revalidatePath("/dashboard/presupuestos");
+  revalidatePath("/dashboard");
+  return null;
+}
