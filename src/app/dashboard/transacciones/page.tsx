@@ -15,7 +15,7 @@ import { getCategories } from "@/features/categories/queries";
 import { deleteTransaction } from "@/features/transactions/actions";
 import { getTransactionsForMonth } from "@/features/transactions/queries";
 import { parseMonthParam, toUTCDateInputValue } from "@/lib/date";
-import { formatCurrency, formatTransactionDate } from "@/lib/format";
+import { formatCurrency, formatTransactionDateTime } from "@/lib/format";
 
 export default async function TransaccionesPage({
   searchParams,
@@ -67,7 +67,9 @@ export default async function TransaccionesPage({
           ) : (
             transactions.map((t) => (
               <TableRow key={t.id}>
-                <TableCell className="whitespace-nowrap">{formatTransactionDate(t.date)}</TableCell>
+                <TableCell className="whitespace-nowrap">
+                  {formatTransactionDateTime(t.date, t.createdAt)}
+                </TableCell>
                 <TableCell className="max-w-40 truncate">{t.description ?? "—"}</TableCell>
                 <TableCell>{t.categoryName}</TableCell>
                 <TableCell className="hidden sm:table-cell">{t.accountName}</TableCell>

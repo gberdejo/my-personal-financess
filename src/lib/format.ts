@@ -35,3 +35,16 @@ export function formatTransactionDate(date: Date) {
     parts.find((part) => part.type === type)?.value ?? "";
   return `${get("weekday")} ${get("day")} de ${get("month")} ${get("year")}`;
 }
+
+// La hora de registro (createdAt) sí es un instante real, a diferencia de
+// `date` (que es solo el día calendario). Se muestra en la zona horaria de
+// Perú, que es donde vive la app.
+const transactionTimeFormatter = new Intl.DateTimeFormat("es-PE", {
+  hour: "2-digit",
+  minute: "2-digit",
+  timeZone: "America/Lima",
+});
+
+export function formatTransactionDateTime(date: Date, createdAt: Date) {
+  return `${formatTransactionDate(date)} ${transactionTimeFormatter.format(createdAt)}`;
+}

@@ -9,12 +9,13 @@ export async function getTransactionsForMonth(year: number, month: number) {
   const transactions = await prisma.transaction.findMany({
     where: { userId, date: { gte: start, lt: end } },
     include: { account: true, category: true },
-    orderBy: { date: "desc" },
+    orderBy: [{ date: "desc" }, { createdAt: "desc" }],
   });
 
   return transactions.map((t) => ({
     id: t.id,
     date: t.date,
+    createdAt: t.createdAt,
     description: t.description,
     amount: Number(t.amount),
     kind: t.kind,
