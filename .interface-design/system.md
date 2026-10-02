@@ -39,11 +39,14 @@ Descripción (o categoría si no hay) en `text-sm font-medium truncate`; debajo 
 ### Lista con proporción (ej. Gastos más altos, `top-expenses-list.tsx`)
 Número de puesto en serif itálica + barra fina `h-1 rounded-full bg-muted` con relleno `bg-expense/70` que muestra el % del total del periodo, % en `text-xs` a la derecha. Pie con `border-t pt-3 text-xs` que resume en una frase lo que significan los datos (cifras clave en `text-foreground font-medium`).
 
+### Marcas de conteo (frecuencia)
+Para "cuántas veces", una marca `h-2.5 w-[3px] rounded-full bg-expense/70` por ocurrencia (gap 3px, máximo 12 y luego `+n`), con la frecuencia `N×` en serif itálica a la izquierda (ej. `recurring-expenses-list.tsx`).
+
 ### Estados vacíos
 Texto simple `text-sm text-muted-foreground` dentro del `CardContent` ("No hay … en este periodo.").
 
 ### Layout del Resumen
-Métricas: `grid sm:grid-cols-2 lg:grid-cols-3`. Detalle: `grid lg:grid-cols-2 xl:grid-cols-3`; la tarjeta que sobra en lg ocupa `lg:col-span-2 xl:col-span-1`. Recarga por periodo con `opacity-60` mientras `isPending`.
+Métricas: `grid sm:grid-cols-2 lg:grid-cols-3`. Detalle: `grid lg:grid-cols-2` en 2×2 (categorías, gastos más altos, gastos recurrentes, transacciones); mantener un número par de tarjetas para que ninguna quede sola. Recarga por periodo con `opacity-60` mientras `isPending`.
 
 ### Planificado → aplicado (Presupuestos)
 Una línea de presupuesto tiene dos estados. Pendiente: círculo `size-5` con borde punteado `border-dashed border-muted-foreground/50`. Aplicado: círculo relleno `bg-expense text-background` con un check; el monto pasa a `text-expense` y, si difiere del planificado, el planificado se muestra tachado debajo. La barra `BudgetProgress` (aplicado vs. planificado, relleno `bg-expense`) se usa en la lista y en el detalle. Las acciones masivas que generan gastos usan el botón cobre `bg-expense text-background`.
