@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CategoryPieChart } from "@/components/finance/category-pie-chart";
+import { TopExpensesList } from "@/components/finance/top-expenses-list";
 import { PeriodRangeFilter, type PeriodSelection } from "@/components/finance/period-range-filter";
 import { getDashboardSummaryForRangeAction } from "@/features/dashboard/actions";
 import { getPresetRange } from "@/lib/period";
@@ -94,10 +95,12 @@ export function DashboardOverview({
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
         <CategoryPieChart data={summary.expenseByCategory} />
 
-        <Card>
+        <TopExpensesList transactions={summary.transactions} totalExpense={summary.expense} />
+
+        <Card className="lg:col-span-2 xl:col-span-1">
           <CardHeader>
             <CardTitle>Transacciones del periodo</CardTitle>
             <CardDescription>
