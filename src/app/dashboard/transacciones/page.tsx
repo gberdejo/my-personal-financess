@@ -1,3 +1,4 @@
+import Link from "next/link";
 import {
   Table,
   TableBody,
@@ -70,7 +71,17 @@ export default async function TransaccionesPage({
                 <TableCell className="whitespace-nowrap">
                   {formatTransactionDateTime(t.date, t.createdAt)}
                 </TableCell>
-                <TableCell className="max-w-40 truncate">{t.description ?? "—"}</TableCell>
+                <TableCell className="max-w-40">
+                  <p className="truncate">{t.description ?? "—"}</p>
+                  {t.budget && (
+                    <Link
+                      href={`/dashboard/presupuestos/${t.budget.id}`}
+                      className="block truncate text-xs text-muted-foreground hover:text-foreground hover:underline"
+                    >
+                      de {t.budget.title}
+                    </Link>
+                  )}
+                </TableCell>
                 <TableCell>{t.categoryName}</TableCell>
                 <TableCell className="hidden sm:table-cell">{t.accountName}</TableCell>
                 <TableCell

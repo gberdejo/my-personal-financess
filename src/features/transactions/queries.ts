@@ -8,7 +8,11 @@ export async function getTransactionsForMonth(year: number, month: number) {
 
   const transactions = await prisma.transaction.findMany({
     where: { userId, date: { gte: start, lt: end } },
-    include: { account: true, category: true },
+    include: {
+      account: true,
+      category: true,
+      budgetItem: { select: { budget: { select: { id: true, title: true } } } },
+    },
     orderBy: [{ date: "desc" }, { createdAt: "desc" }],
   });
 
@@ -23,5 +27,6 @@ export async function getTransactionsForMonth(year: number, month: number) {
     accountName: t.account.name,
     categoryId: t.categoryId,
     categoryName: t.category.name,
+    budget: t.budgetItem?.budget ?? null,
   }));
 }

@@ -48,3 +48,11 @@ const transactionTimeFormatter = new Intl.DateTimeFormat("es-PE", {
 export function formatTransactionDateTime(date: Date, createdAt: Date) {
   return `${formatTransactionDate(date)} ${transactionTimeFormatter.format(createdAt)}`;
 }
+
+export function formatCountdown(days: number) {
+  if (days === 0) return "es hoy";
+  if (days === 1) return "es mañana";
+  if (days > 1) return `faltan ${days} días`;
+  if (days === -1) return "fue ayer";
+  return `fue hace ${-days} días`;
+}

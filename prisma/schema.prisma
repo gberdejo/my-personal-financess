@@ -19,6 +19,15 @@ enum TransactionKind {
   EXPENSE
 }
 
+enum BudgetTemplate {
+  PARTY
+  EVENT
+  CONSTRUCTION
+  TRIP
+  SHOPPING
+  BLANK
+}
+
 model Account {
   id             String      @id @default(cuid())
   userId         String
@@ -29,6 +38,7 @@ model Account {
   updatedAt      DateTime    @updatedAt
 
   transactions Transaction[]
+  budgets      Budget[]
 
   @@index([userId])
 }
@@ -42,6 +52,7 @@ model Category {
   createdAt DateTime        @default(now())
 
   transactions Transaction[]
+  budgetItems  BudgetItem[]
 
   @@unique([userId, name, kind])
   @@index([userId])
@@ -59,10 +70,56 @@ model Transaction {
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
-  account  Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  category Category @relation(fields: [categoryId], references: [id])
+  account    Account     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  category   Category    @relation(fields: [categoryId], references: [id])
+  budgetItem BudgetItem?
 
   @@index([userId, date])
   @@index([accountId])
+  @@index([categoryId])
+}
+
+// Presupuesto para algo que todavía no pasó (una fiesta, una obra, unas
+// compras). Sus líneas son gastos planificados que se "aplican" creando una
+// Transaction real.
+model Budget {
+  id          String         @id @default(cuid())
+  userId      String
+  title       String
+  description String?
+  // Día calendario del evento, guardado como medianoche UTC (igual que Transaction.date).
+  date        DateTime?
+  template    BudgetTemplate @default(BLANK)
+  // Cuenta propuesta al aplicar gastos; se puede cambiar en cada aplicación.
+  accountId   String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  account Account?     @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  items   BudgetItem[]
+
+  @@index([userId])
+}
+
+model BudgetItem {
+  id            String   @id @default(cuid())
+  budgetId      String
+  categoryId    String
+  description   String
+  // Cantidad × precio unitario es opcional; si están, amount = quantity * unitPrice.
+  quantity      Decimal? @db.Decimal(10, 2)
+  unitPrice     Decimal? @db.Decimal(12, 2)
+  // Monto planificado. El monto real queda en la Transaction aplicada.
+  amount        Decimal  @default(0) @db.Decimal(12, 2)
+  // Gasto generado al aplicar. Si se borra el gasto, la línea vuelve a pendiente.
+  transactionId String?  @unique
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  budget      Budget       @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  category    Category     @relation(fields: [categoryId], references: [id])
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@index([budgetId])
   @@index([categoryId])
 }

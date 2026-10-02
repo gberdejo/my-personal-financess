@@ -104,3 +104,16 @@ export function weekLabel(date: Date) {
   const lastDay = shiftDay(end, -1);
   return `${weekLabelFormatter.format(start)} – ${weekLabelFormatter.format(lastDay)}`;
 }
+
+// Día calendario de hoy en Perú, como medianoche UTC, para compararlo con
+// fechas guardadas como día calendario (transacciones, presupuestos).
+export function todayInLima() {
+  const value = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Lima" }).format(new Date());
+  return parseDateOnly(value)!;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export function daysUntil(date: Date) {
+  return Math.round((date.getTime() - todayInLima().getTime()) / DAY_MS);
+}

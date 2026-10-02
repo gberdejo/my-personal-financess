@@ -45,7 +45,7 @@ export function AppSidebar() {
                 <SidebarMenuItem key={item.url}>
                   <SidebarMenuButton
                     asChild
-                    isActive={pathname === item.url}
+                    isActive={item.url === "/dashboard" ? pathname === item.url : pathname.startsWith(item.url)}
                     className="rounded-full font-medium data-active:bg-primary data-active:text-primary-foreground data-active:hover:bg-primary/90 [&_svg]:data-active:text-primary-foreground"
                   >
                     <Link href={item.url} onClick={closeSidebar}>

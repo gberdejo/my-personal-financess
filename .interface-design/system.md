@@ -44,3 +44,12 @@ Texto simple `text-sm text-muted-foreground` dentro del `CardContent` ("No hay �
 
 ### Layout del Resumen
 Métricas: `grid sm:grid-cols-2 lg:grid-cols-3`. Detalle: `grid lg:grid-cols-2 xl:grid-cols-3`; la tarjeta que sobra en lg ocupa `lg:col-span-2 xl:col-span-1`. Recarga por periodo con `opacity-60` mientras `isPending`.
+
+### Planificado → aplicado (Presupuestos)
+Una línea de presupuesto tiene dos estados. Pendiente: círculo `size-5` con borde punteado `border-dashed border-muted-foreground/50`. Aplicado: círculo relleno `bg-expense text-background` con un check; el monto pasa a `text-expense` y, si difiere del planificado, el planificado se muestra tachado debajo. La barra `BudgetProgress` (aplicado vs. planificado, relleno `bg-expense`) se usa en la lista y en el detalle. Las acciones masivas que generan gastos usan el botón cobre `bg-expense text-background`.
+
+### Chip de tipo
+`rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary` (p. ej. la plantilla de un presupuesto).
+
+### Cuenta regresiva
+`font-heading italic` con `formatCountdown(daysUntil(date))` ("faltan 43 días"); en `text-muted-foreground` si ya pasó o no hay fecha.

@@ -12,6 +12,8 @@ function revalidateAll() {
   revalidatePath("/dashboard/transacciones");
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/cuentas");
+  // Borrar un gasto aplicado desde un presupuesto devuelve su línea a pendiente.
+  revalidatePath("/dashboard/presupuestos", "layout");
 }
 
 export async function createTransaction(_prevState: ActionState, formData: FormData): Promise<ActionState> {
