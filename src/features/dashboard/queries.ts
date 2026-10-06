@@ -47,7 +47,7 @@ export async function getDashboardSummaryForRange(start: Date, end: Date) {
     transactions: transactions.map((t) => ({
       id: t.id,
       date: t.date,
-      description: t.description,
+      reason: t.reason,
       amount: Number(t.amount),
       kind: t.kind,
       categoryName: t.category.name,

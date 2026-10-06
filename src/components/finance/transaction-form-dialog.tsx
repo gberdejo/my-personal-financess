@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState, useTransition } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,9 +23,12 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { CategoryCombobox } from "@/components/finance/category-combobox";
+import { ReasonField } from "@/components/finance/reason-field";
+import { useCreateCategory } from "@/components/finance/use-create-category";
 import { PaymentMethodSelect } from "@/components/finance/payment-method-select";
-import { createCategory } from "@/features/categories/actions";
 import { createTransaction } from "@/features/transactions/actions";
+import type { ReasonSuggestion } from "@/features/categories/queries";
 import type { TransactionKind } from "@/generated/prisma/client";
 
 type CategoryOption = { id: string; name: string };
@@ -42,21 +45,34 @@ export function TransactionFormDialog({
   accounts,
   incomeCategories,
   expenseCategories,
+  frequentCategoryIds,
+  reasonSuggestions,
 }: {
   accounts: AccountOption[];
   incomeCategories: CategoryOption[];
   expenseCategories: CategoryOption[];
+  frequentCategoryIds: string[];
+  // Por id de categoría.
+  reasonSuggestions: Record<string, ReasonSuggestion[]>;
 }) {
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<TransactionKind>("EXPENSE");
   const [categories, setCategories] = useState({ INCOME: incomeCategories, EXPENSE: expenseCategories });
   const [categoryId, setCategoryId] = useState("");
-  const [addingCategory, setAddingCategory] = useState(false);
-  const [newCategoryName, setNewCategoryName] = useState("");
-  const [categoryError, setCategoryError] = useState<string | null>(null);
+  // Motivo a completar al elegir la categoría por uno de sus motivos.
+  // `key` remonta el campo para que tome el valor nuevo.
+  const [reasonPrefill, setReasonPrefill] = useState({ key: 0, value: "" });
 
   const [state, formAction, pending] = useActionState(createTransaction, null);
-  const [categoryPending, startCategoryTransition] = useTransition();
+  const {
+    create: createCategory,
+    pending: categoryPending,
+    error: categoryError,
+    setError: setCategoryError,
+  } = useCreateCategory((created) => {
+    setCategories((prev) => ({ ...prev, [created.kind]: [...prev[created.kind], created] }));
+    setCategoryId(created.id);
+  });
 
   const formRef = useRef<HTMLFormElement>(null);
   const wasPending = useRef(false);
@@ -67,31 +83,15 @@ export function TransactionFormDialog({
       formRef.current?.reset();
       setKind("EXPENSE");
       setCategoryId("");
-      setAddingCategory(false);
+      setCategoryError(null);
     }
     wasPending.current = pending;
-  }, [pending, state]);
+  }, [pending, state, setCategoryError]);
 
-  function handleAddCategory() {
-    if (!newCategoryName.trim()) return;
-    const formData = new FormData();
-    formData.set("name", newCategoryName.trim());
-    formData.set("kind", kind);
+  function handleSelectCategory(id: string, reason?: string) {
+    setCategoryId(id);
     setCategoryError(null);
-    startCategoryTransition(async () => {
-      const result = await createCategory(null, formData);
-      if (result?.error) {
-        setCategoryError(result.error);
-        return;
-      }
-      if (result?.category) {
-        const created = result.category;
-        setCategories((prev) => ({ ...prev, [created.kind]: [...prev[created.kind], created] }));
-        setCategoryId(created.id);
-        setNewCategoryName("");
-        setAddingCategory(false);
-      }
-    });
+    if (reason) setReasonPrefill((prev) => ({ key: prev.key + 1, value: reason }));
   }
 
   const currentCategories = categories[kind];
@@ -116,7 +116,7 @@ export function TransactionFormDialog({
             onValueChange={(value) => {
               setKind(value as TransactionKind);
               setCategoryId("");
-              setAddingCategory(false);
+              setCategoryError(null);
             }}
           >
             <TabsList className="w-full">
@@ -150,44 +150,28 @@ export function TransactionFormDialog({
           </div>
 
           <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="tx-category">Categoría</Label>
-              <button
-                type="button"
-                className="text-xs font-medium text-muted-foreground hover:text-foreground"
-                onClick={() => setAddingCategory((v) => !v)}
-              >
-                {addingCategory ? "Cancelar" : "+ Nueva categoría"}
-              </button>
-            </div>
-            {addingCategory ? (
-              <div className="flex gap-2">
-                <Input
-                  autoFocus
-                  placeholder="Nombre de la categoría"
-                  value={newCategoryName}
-                  onChange={(e) => setNewCategoryName(e.target.value)}
-                />
-                <Button type="button" variant="secondary" disabled={categoryPending} onClick={handleAddCategory}>
-                  Agregar
-                </Button>
-              </div>
-            ) : (
-              <Select name="categoryId" value={categoryId} onValueChange={setCategoryId} required>
-                <SelectTrigger id="tx-category" className="w-full">
-                  <SelectValue placeholder="Elegí una categoría" />
-                </SelectTrigger>
-                <SelectContent>
-                  {currentCategories.map((category) => (
-                    <SelectItem key={category.id} value={category.id}>
-                      {category.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
+            <Label htmlFor="tx-category">Categoría</Label>
+            <input type="hidden" name="categoryId" value={categoryId} />
+            <CategoryCombobox
+              id="tx-category"
+              categories={currentCategories}
+              value={categoryId}
+              frequentIds={frequentCategoryIds}
+              reasonSuggestions={reasonSuggestions}
+              creating={categoryPending}
+              onSelect={handleSelectCategory}
+              onCreate={(name) => createCategory(name, kind)}
+            />
             {categoryError && <p className="text-sm text-destructive">{categoryError}</p>}
           </div>
+
+          <ReasonField
+            key={reasonPrefill.key}
+            id="tx-reason"
+            defaultValue={reasonPrefill.value}
+            suggestions={reasonSuggestions[categoryId] ?? []}
+            canSave={categoryId !== ""}
+          />
 
           <div className="grid grid-cols-2 gap-4">
             <div className="flex flex-col gap-2">
@@ -210,7 +194,12 @@ export function TransactionFormDialog({
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="tx-description">Descripción (opcional)</Label>
-            <Textarea id="tx-description" name="description" placeholder="Ej. Almuerzo con el equipo" rows={2} />
+            <Textarea
+              id="tx-description"
+              name="description"
+              placeholder="Ej. Con el equipo por el cumpleaños de Ana"
+              rows={2}
+            />
           </div>
 
           {state?.error && <p className="text-sm text-destructive">{state.error}</p>}

@@ -19,7 +19,7 @@ type PaymentMethodTotal = { method: PaymentMethod | null; total: number };
 type TransactionRow = {
   id: string;
   date: Date;
-  description: string | null;
+  reason: string | null;
   amount: number;
   kind: TransactionKind;
   categoryName: string;
@@ -125,7 +125,7 @@ export function DashboardOverview({
                 {summary.transactions.map((t) => (
                   <div key={t.id} className="flex items-center justify-between gap-4 py-2 first:pt-0 last:pb-0">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{t.description || t.categoryName}</p>
+                      <p className="truncate text-sm font-medium">{t.reason || t.categoryName}</p>
                       <p className="text-xs text-muted-foreground">
                         {t.categoryName} · {formatTransactionDate(t.date)}
                       </p>

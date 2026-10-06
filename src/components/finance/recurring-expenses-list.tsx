@@ -2,13 +2,14 @@
 
 import { useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { normalizeReason } from "@/lib/reason";
 import { formatCurrency } from "@/lib/format";
 import type { TransactionKind } from "@/generated/prisma/client";
 
 type TransactionRow = {
   id: string;
   date: Date;
-  description: string | null;
+  reason: string | null;
   amount: number;
   kind: TransactionKind;
   categoryName: string;
@@ -27,11 +28,6 @@ const MIN_OCCURRENCES = 2;
 // A partir de aquí las marcas de conteo se resumen con "+n" para no desbordar la fila.
 const MAX_TALLY_MARKS = 12;
 
-// "Café ", "café" y "CAFÉ" cuentan como el mismo gasto.
-function normalize(description: string) {
-  return description.trim().replace(/\s+/g, " ").toLocaleLowerCase("es-PE");
-}
-
 export function RecurringExpensesList({
   transactions,
   limit = DEFAULT_LIMIT,
@@ -40,15 +36,15 @@ export function RecurringExpensesList({
   limit?: number;
 }) {
   const recurring = useMemo(() => {
-    const byDescription = new Map<string, RecurringExpense>();
+    const byReason = new Map<string, RecurringExpense>();
     // Las transacciones llegan de la más reciente a la más antigua, así que el
     // nombre que se muestra es el de la última vez que se escribió.
     for (const t of transactions) {
-      if (t.kind !== "EXPENSE" || !t.description?.trim()) continue;
-      const key = normalize(t.description);
-      const entry = byDescription.get(key) ?? {
+      if (t.kind !== "EXPENSE" || !t.reason?.trim()) continue;
+      const key = normalizeReason(t.reason);
+      const entry = byReason.get(key) ?? {
         key,
-        name: t.description.trim(),
+        name: t.reason.trim(),
         count: 0,
         total: 0,
         categories: new Set<string>(),
@@ -56,9 +52,9 @@ export function RecurringExpensesList({
       entry.count += 1;
       entry.total += t.amount;
       entry.categories.add(t.categoryName);
-      byDescription.set(key, entry);
+      byReason.set(key, entry);
     }
-    return [...byDescription.values()]
+    return [...byReason.values()]
       .filter((entry) => entry.count >= MIN_OCCURRENCES)
       .sort((a, b) => b.count - a.count || b.total - a.total);
   }, [transactions]);
@@ -75,7 +71,7 @@ export function RecurringExpensesList({
       <CardContent>
         {shown.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Ningún gasto se repite en este periodo. Se agrupan por descripción, así que conviene escribirla igual cada vez.
+            Ningún gasto se repite en este periodo. Se agrupan por motivo: usá las sugerencias al registrar un gasto para que coincidan.
           </p>
         ) : (
           <div className="flex flex-col gap-4">

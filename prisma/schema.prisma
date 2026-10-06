@@ -64,9 +64,25 @@ model Category {
 
   transactions Transaction[]
   budgetItems  BudgetItem[]
+  reasons      CategoryReason[]
 
   @@unique([userId, name, kind])
   @@index([userId])
+}
+
+// Motivo sugerido para una categoría. Sirve para escribir siempre igual los
+// gastos que se repiten. Como en Category, userId null = predefinido.
+model CategoryReason {
+  id         String   @id @default(cuid())
+  userId     String?
+  categoryId String
+  name       String
+  createdAt  DateTime @default(now())
+
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, categoryId, name])
+  @@index([categoryId])
 }
 
 model Transaction {
@@ -76,6 +92,9 @@ model Transaction {
   categoryId    String
   kind          TransactionKind
   amount        Decimal         @db.Decimal(12, 2)
+  // Para qué fue (ej. "Almuerzo"). Sale de sugerencias por categoría y agrupa
+  // los gastos recurrentes. `description` queda como nota en texto libre.
+  reason        String?
   description   String?
   date          DateTime
   // Solo gastos. Null en ingresos y en gastos anteriores a este campo.

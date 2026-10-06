@@ -29,6 +29,7 @@ export async function getTransactionsForMonth(year: number, month: number, metho
     id: t.id,
     date: t.date,
     createdAt: t.createdAt,
+    reason: t.reason,
     description: t.description,
     amount: Number(t.amount),
     kind: t.kind,

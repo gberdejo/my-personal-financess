@@ -1,4 +1,5 @@
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CategoryReasonsEditor } from "@/components/finance/category-reasons-editor";
 import { EditCategoryDialog } from "@/components/finance/edit-category-dialog";
 import { requireUserId } from "@/lib/auth";
 import { getAllCategories } from "@/features/categories/queries";
@@ -14,8 +15,12 @@ export default async function CategoriasPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-col gap-1">
         <h1 className="font-heading text-2xl font-medium italic md:text-3xl">Categorías</h1>
+        <p className="text-sm text-muted-foreground">
+          Los motivos de cada categoría aparecen como sugerencias al registrar un movimiento, para escribirlos
+          siempre igual.
+        </p>
       </div>
 
       {categories.length === 0 ? (
@@ -44,6 +49,9 @@ export default async function CategoriasPage() {
                           <span className="text-xs text-muted-foreground">Global</span>
                         )}
                       </CardHeader>
+                      <CardContent>
+                        <CategoryReasonsEditor categoryId={category.id} reasons={category.reasons} />
+                      </CardContent>
                     </Card>
                   ))}
                 </div>

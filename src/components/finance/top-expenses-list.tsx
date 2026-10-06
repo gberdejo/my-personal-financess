@@ -8,7 +8,7 @@ import type { TransactionKind } from "@/generated/prisma/client";
 type TransactionRow = {
   id: string;
   date: Date;
-  description: string | null;
+  reason: string | null;
   amount: number;
   kind: TransactionKind;
   categoryName: string;
@@ -59,7 +59,7 @@ export function TopExpensesList({
                     </span>
                     <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                       <div className="flex items-baseline justify-between gap-4">
-                        <p className="truncate text-sm font-medium">{t.description || t.categoryName}</p>
+                        <p className="truncate text-sm font-medium">{t.reason || t.categoryName}</p>
                         <span className="shrink-0 text-sm font-semibold tabular-nums text-expense">
                           {formatCurrency(t.amount)}
                         </span>

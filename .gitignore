@@ -43,3 +43,6 @@ next-env.d.ts
 
 # prisma
 /src/generated/prisma
+
+# backups locales de la base de datos (datos personales)
+/backups

@@ -227,7 +227,8 @@ export async function applyBudgetItem(
         categoryId: item.categoryId,
         kind: "EXPENSE",
         amount,
-        description: item.description,
+        // El texto de la línea es el motivo del gasto.
+        reason: item.description,
         date,
         paymentMethod,
       },
@@ -271,7 +272,7 @@ export async function applyPendingBudgetItems(
           categoryId: item.categoryId,
           kind: "EXPENSE",
           amount: item.amount,
-          description: item.description,
+          reason: item.description,
           date,
           paymentMethod,
         },

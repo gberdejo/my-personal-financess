@@ -5,6 +5,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/auth";
 import type { TransactionKind } from "@/generated/prisma/client";
+import { saveCategoryReason } from "./reasons";
 
 export type CategoryActionState = {
   error?: string;
@@ -67,4 +68,32 @@ export async function renameCategory(
   revalidatePath("/dashboard/presupuestos");
   revalidatePath("/dashboard");
   return null;
+}
+
+export type CategoryReasonState = { error?: string } | null;
+
+function revalidateReasons() {
+  revalidatePath("/dashboard/categorias");
+  revalidatePath("/dashboard/transacciones");
+}
+
+export async function createCategoryReason(
+  categoryId: string,
+  _prevState: CategoryReasonState,
+  formData: FormData
+): Promise<CategoryReasonState> {
+  const userId = await requireUserId();
+
+  const result = await saveCategoryReason(userId, categoryId, String(formData.get("name") ?? ""));
+  if ("error" in result) return { error: result.error };
+
+  revalidateReasons();
+  return null;
+}
+
+// Solo se pueden borrar los propios; los predefinidos quedan.
+export async function deleteCategoryReason(reasonId: string) {
+  const userId = await requireUserId();
+  await prisma.categoryReason.deleteMany({ where: { id: reasonId, userId } });
+  revalidateReasons();
 }
