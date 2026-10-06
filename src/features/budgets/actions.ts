@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/auth";
 import { parseDateOnly } from "@/lib/date";
+import { isPaymentMethod } from "@/lib/labels";
 import type { BudgetTemplate } from "@/generated/prisma/client";
 import { BUDGET_TEMPLATES, BUDGET_TEMPLATE_ITEMS, FALLBACK_CATEGORY_NAME } from "./templates";
 
@@ -205,9 +206,11 @@ export async function applyBudgetItem(
   const accountId = String(formData.get("accountId") ?? "");
   const amount = Number(formData.get("amount"));
   const date = readOptionalDate(formData, "date");
+  const paymentMethod = String(formData.get("paymentMethod") ?? "");
 
   if (!amount || amount <= 0) return { error: "El monto debe ser mayor a 0." };
   if (!date || date === "invalid") return { error: "La fecha no es válida." };
+  if (!isPaymentMethod(paymentMethod)) return { error: "Elegí un método de pago." };
 
   const account = await findOwnAccount(userId, accountId);
   if (!account) return { error: "Elegí una cuenta." };
@@ -226,6 +229,7 @@ export async function applyBudgetItem(
         amount,
         description: item.description,
         date,
+        paymentMethod,
       },
     });
     await tx.budgetItem.update({ where: { id: item.id }, data: { transactionId: transaction.id } });
@@ -245,8 +249,10 @@ export async function applyPendingBudgetItems(
 
   const accountId = String(formData.get("accountId") ?? "");
   const date = readOptionalDate(formData, "date");
+  const paymentMethod = String(formData.get("paymentMethod") ?? "");
 
   if (!date || date === "invalid") return { error: "La fecha no es válida." };
+  if (!isPaymentMethod(paymentMethod)) return { error: "Elegí un método de pago." };
 
   const account = await findOwnAccount(userId, accountId);
   if (!account) return { error: "Elegí una cuenta." };
@@ -267,6 +273,7 @@ export async function applyPendingBudgetItems(
           amount: item.amount,
           description: item.description,
           date,
+          paymentMethod,
         },
       });
       await tx.budgetItem.update({ where: { id: item.id }, data: { transactionId: transaction.id } });

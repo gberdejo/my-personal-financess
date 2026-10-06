@@ -19,6 +19,17 @@ enum TransactionKind {
   EXPENSE
 }
 
+// Cómo se pagó un gasto. Es informativo: el saldo lo mueve la cuenta
+// (ej. un Yape o una compra con tarjeta que sale de la cuenta sueldo).
+enum PaymentMethod {
+  CREDIT_CARD
+  DEBIT_CARD
+  YAPE
+  PLIN
+  CASH
+  TRANSFER
+}
+
 enum BudgetTemplate {
   PARTY
   EVENT
@@ -59,16 +70,18 @@ model Category {
 }
 
 model Transaction {
-  id          String          @id @default(cuid())
-  userId      String
-  accountId   String
-  categoryId  String
-  kind        TransactionKind
-  amount      Decimal         @db.Decimal(12, 2)
-  description String?
-  date        DateTime
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  id            String          @id @default(cuid())
+  userId        String
+  accountId     String
+  categoryId    String
+  kind          TransactionKind
+  amount        Decimal         @db.Decimal(12, 2)
+  description   String?
+  date          DateTime
+  // Solo gastos. Null en ingresos y en gastos anteriores a este campo.
+  paymentMethod PaymentMethod?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
 
   account    Account     @relation(fields: [accountId], references: [id], onDelete: Cascade)
   category   Category    @relation(fields: [categoryId], references: [id])

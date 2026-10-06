@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CategoryPieChart } from "@/components/finance/category-pie-chart";
+import { PaymentMethodBreakdown } from "@/components/finance/payment-method-breakdown";
 import { RecurringExpensesList } from "@/components/finance/recurring-expenses-list";
 import { TopExpensesList } from "@/components/finance/top-expenses-list";
 import { PeriodRangeFilter, type PeriodSelection } from "@/components/finance/period-range-filter";
@@ -11,9 +12,10 @@ import { getDashboardSummaryForRangeAction } from "@/features/dashboard/actions"
 import { getPresetRange } from "@/lib/period";
 import { monthRange, toDateInputValue, toUTCDateInputValue } from "@/lib/date";
 import { formatCurrency, formatTransactionDate } from "@/lib/format";
-import type { TransactionKind } from "@/generated/prisma/client";
+import type { PaymentMethod, TransactionKind } from "@/generated/prisma/client";
 
 type CategoryTotal = { name: string; total: number };
+type PaymentMethodTotal = { method: PaymentMethod | null; total: number };
 type TransactionRow = {
   id: string;
   date: Date;
@@ -28,6 +30,7 @@ type Summary = {
   income: number;
   expense: number;
   expenseByCategory: CategoryTotal[];
+  expenseByPaymentMethod: PaymentMethodTotal[];
   transactions: TransactionRow[];
 };
 
@@ -98,6 +101,8 @@ export function DashboardOverview({
 
       <div className="grid gap-4 lg:grid-cols-2">
         <CategoryPieChart data={summary.expenseByCategory} />
+
+        <PaymentMethodBreakdown data={summary.expenseByPaymentMethod} totalExpense={summary.expense} />
 
         <TopExpensesList transactions={summary.transactions} totalExpense={summary.expense} />
 

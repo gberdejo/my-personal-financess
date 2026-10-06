@@ -14,6 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PaymentMethodSelect } from "@/components/finance/payment-method-select";
 import { applyPendingBudgetItems } from "@/features/budgets/actions";
 import { toDateInputValue } from "@/lib/date";
 import { formatCurrency } from "@/lib/format";
@@ -113,6 +114,8 @@ export function ApplyPendingBudgetDialog({
               />
             </div>
           </div>
+
+          <PaymentMethodSelect id="apply-pending-payment-method" />
 
           {state?.error && <p className="text-sm text-destructive">{state.error}</p>}
 

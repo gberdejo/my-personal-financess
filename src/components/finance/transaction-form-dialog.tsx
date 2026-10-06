@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { PaymentMethodSelect } from "@/components/finance/payment-method-select";
 import { createCategory } from "@/features/categories/actions";
 import { createTransaction } from "@/features/transactions/actions";
 import type { TransactionKind } from "@/generated/prisma/client";
@@ -124,25 +125,28 @@ export function TransactionFormDialog({
             </TabsList>
           </Tabs>
 
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="tx-account">Cuenta</Label>
-            <Select name="accountId" required>
-              <SelectTrigger id="tx-account" className="w-full">
-                <SelectValue placeholder="Elegí una cuenta" />
-              </SelectTrigger>
-              <SelectContent>
-                {accounts.map((account) => (
-                  <SelectItem key={account.id} value={account.id}>
-                    {account.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {accounts.length === 0 && (
-              <p className="text-xs text-muted-foreground">
-                Primero creá una cuenta en la sección Cuentas.
-              </p>
-            )}
+          <div className={kind === "EXPENSE" ? "grid grid-cols-2 gap-4" : "flex flex-col"}>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="tx-account">Cuenta</Label>
+              <Select name="accountId" required>
+                <SelectTrigger id="tx-account" className="w-full">
+                  <SelectValue placeholder="Elegí una cuenta" />
+                </SelectTrigger>
+                <SelectContent>
+                  {accounts.map((account) => (
+                    <SelectItem key={account.id} value={account.id}>
+                      {account.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {accounts.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Primero creá una cuenta en la sección Cuentas.
+                </p>
+              )}
+            </div>
+            {kind === "EXPENSE" && <PaymentMethodSelect id="tx-payment-method" />}
           </div>
 
           <div className="flex flex-col gap-2">

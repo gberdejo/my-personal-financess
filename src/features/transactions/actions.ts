@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/auth";
 import { parseDateOnly } from "@/lib/date";
-import type { TransactionKind } from "@/generated/prisma/client";
+import { isPaymentMethod } from "@/lib/labels";
+import type { PaymentMethod, TransactionKind } from "@/generated/prisma/client";
 
 export type ActionState = { error?: string } | null;
 
@@ -16,6 +17,11 @@ function revalidateAll() {
   revalidatePath("/dashboard/presupuestos", "layout");
 }
 
+function readPaymentMethod(formData: FormData): PaymentMethod | null {
+  const raw = String(formData.get("paymentMethod") ?? "");
+  return isPaymentMethod(raw) ? raw : null;
+}
+
 export async function createTransaction(_prevState: ActionState, formData: FormData): Promise<ActionState> {
   const userId = await requireUserId();
 
@@ -25,11 +31,14 @@ export async function createTransaction(_prevState: ActionState, formData: FormD
   const amount = Number(formData.get("amount"));
   const description = String(formData.get("description") ?? "").trim() || null;
   const dateRaw = String(formData.get("date") ?? "");
+  // Los ingresos no llevan método de pago.
+  const paymentMethod = kind === "EXPENSE" ? readPaymentMethod(formData) : null;
 
   if (kind !== "INCOME" && kind !== "EXPENSE") return { error: "Tipo de movimiento inválido." };
   if (!accountId) return { error: "Elegí una cuenta." };
   if (!categoryId) return { error: "Elegí una categoría." };
   if (!amount || amount <= 0) return { error: "El monto debe ser mayor a 0." };
+  if (kind === "EXPENSE" && !paymentMethod) return { error: "Elegí un método de pago." };
   if (!dateRaw) return { error: "La fecha es obligatoria." };
 
   const date = parseDateOnly(dateRaw);
@@ -44,14 +53,14 @@ export async function createTransaction(_prevState: ActionState, formData: FormD
   if (!category) return { error: "Categoría inválida." };
 
   await prisma.transaction.create({
-    data: { userId, accountId, categoryId, kind, amount, description, date },
+    data: { userId, accountId, categoryId, kind, amount, description, date, paymentMethod },
   });
 
   revalidateAll();
   return null;
 }
 
-export async function updateTransactionDate(
+export async function updateTransaction(
   transactionId: string,
   _prevState: ActionState,
   formData: FormData
@@ -64,11 +73,19 @@ export async function updateTransactionDate(
   const date = parseDateOnly(dateRaw);
   if (!date) return { error: "La fecha no es válida." };
 
-  const result = await prisma.transaction.updateMany({
+  const transaction = await prisma.transaction.findFirst({
     where: { id: transactionId, userId },
-    data: { date },
+    select: { kind: true },
   });
-  if (result.count === 0) return { error: "No se pudo actualizar el movimiento." };
+  if (!transaction) return { error: "No se pudo actualizar el movimiento." };
+
+  const paymentMethod = transaction.kind === "EXPENSE" ? readPaymentMethod(formData) : null;
+  if (transaction.kind === "EXPENSE" && !paymentMethod) return { error: "Elegí un método de pago." };
+
+  await prisma.transaction.update({
+    where: { id: transactionId },
+    data: { date, paymentMethod },
+  });
 
   revalidateAll();
   return null;

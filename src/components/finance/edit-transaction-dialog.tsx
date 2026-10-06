@@ -14,18 +14,24 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { updateTransactionDate } from "@/features/transactions/actions";
+import { PaymentMethodSelect } from "@/components/finance/payment-method-select";
+import { updateTransaction } from "@/features/transactions/actions";
+import type { PaymentMethod, TransactionKind } from "@/generated/prisma/client";
 
 export function EditTransactionDialog({
   transactionId,
+  kind,
   currentDate,
+  currentPaymentMethod,
 }: {
   transactionId: string;
+  kind: TransactionKind;
   currentDate: string;
+  currentPaymentMethod: PaymentMethod | null;
 }) {
   const [open, setOpen] = useState(false);
   const [state, formAction, pending] = useActionState(
-    updateTransactionDate.bind(null, transactionId),
+    updateTransaction.bind(null, transactionId),
     null
   );
   const wasPending = useRef(false);
@@ -48,13 +54,21 @@ export function EditTransactionDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Editar movimiento</DialogTitle>
-          <DialogDescription>Por ahora solo se puede modificar la fecha.</DialogDescription>
+          <DialogDescription>
+            {kind === "EXPENSE"
+              ? "Por ahora se puede modificar la fecha y el método de pago."
+              : "Por ahora solo se puede modificar la fecha."}
+          </DialogDescription>
         </DialogHeader>
         <form action={formAction} className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
             <Label htmlFor="edit-tx-date">Fecha</Label>
             <Input id="edit-tx-date" name="date" type="date" defaultValue={currentDate} required />
           </div>
+
+          {kind === "EXPENSE" && (
+            <PaymentMethodSelect id="edit-tx-payment-method" defaultValue={currentPaymentMethod} />
+          )}
 
           {state?.error && <p className="text-sm text-destructive">{state.error}</p>}
 

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/auth";
+import type { PaymentMethod } from "@/generated/prisma/client";
 
 export async function getDashboardSummaryForRange(start: Date, end: Date) {
   const userId = await requireUserId();
@@ -27,11 +28,22 @@ export async function getDashboardSummaryForRange(start: Date, end: Date) {
   }
   const expenseByCategory = [...byCategory.values()].sort((a, b) => b.total - a.total);
 
+  // null agrupa los gastos registrados sin método de pago.
+  const byPaymentMethod = new Map<PaymentMethod | null, number>();
+  for (const t of transactions) {
+    if (t.kind !== "EXPENSE") continue;
+    byPaymentMethod.set(t.paymentMethod, (byPaymentMethod.get(t.paymentMethod) ?? 0) + Number(t.amount));
+  }
+  const expenseByPaymentMethod = [...byPaymentMethod.entries()]
+    .map(([method, total]) => ({ method, total }))
+    .sort((a, b) => b.total - a.total);
+
   return {
     balance: income - expense,
     income,
     expense,
     expenseByCategory,
+    expenseByPaymentMethod,
     transactions: transactions.map((t) => ({
       id: t.id,
       date: t.date,
