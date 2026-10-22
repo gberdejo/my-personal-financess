@@ -30,6 +30,26 @@ enum PaymentMethod {
   TRANSFER
 }
 
+// Servicio o gasto programado (al pagarlo se registra un gasto) o pago de
+// tarjeta de crédito (recordatorio: sus gastos ya están registrados).
+enum ScheduledPaymentType {
+  BILL
+  CREDIT_CARD
+}
+
+enum ScheduleFrequency {
+  ONCE
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum OccurrenceStatus {
+  PAID
+  SKIPPED
+}
+
 enum BudgetTemplate {
   PARTY
   EVENT
@@ -48,8 +68,9 @@ model Account {
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
-  transactions Transaction[]
-  budgets      Budget[]
+  transactions      Transaction[]
+  budgets           Budget[]
+  scheduledPayments ScheduledPayment[]
 
   @@index([userId])
 }
@@ -62,9 +83,10 @@ model Category {
   icon      String?
   createdAt DateTime        @default(now())
 
-  transactions Transaction[]
-  budgetItems  BudgetItem[]
-  reasons      CategoryReason[]
+  transactions      Transaction[]
+  budgetItems       BudgetItem[]
+  reasons           CategoryReason[]
+  scheduledPayments ScheduledPayment[]
 
   @@unique([userId, name, kind])
   @@index([userId])
@@ -104,7 +126,8 @@ model Transaction {
 
   account    Account     @relation(fields: [accountId], references: [id], onDelete: Cascade)
   category   Category    @relation(fields: [categoryId], references: [id])
-  budgetItem BudgetItem?
+  budgetItem          BudgetItem?
+  scheduledOccurrence ScheduledOccurrence?
 
   @@index([userId, date])
   @@index([accountId])
@@ -154,4 +177,55 @@ model BudgetItem {
 
   @@index([budgetId])
   @@index([categoryId])
+}
+
+// Pago que se repite (o uno puntual) para el calendario. Las cuotas se calculan
+// con la regla (startDate + frequency); no se guardan hasta pagarlas u omitirlas.
+model ScheduledPayment {
+  id            String               @id @default(cuid())
+  userId        String
+  type          ScheduledPaymentType @default(BILL)
+  // En BILL también es el motivo del gasto que se registra al pagar.
+  name          String
+  // Obligatoria en BILL; la tarjeta no registra gasto.
+  categoryId    String?
+  // Cuenta y método propuestos al pagar; se pueden cambiar en cada pago.
+  accountId     String?
+  paymentMethod PaymentMethod?
+  // Monto estimado. En tarjeta es null: se estima con los gastos del ciclo.
+  amount        Decimal?             @db.Decimal(12, 2)
+  frequency     ScheduleFrequency    @default(MONTHLY)
+  // Primera fecha, como medianoche UTC. Su día del mes es el día de pago.
+  startDate     DateTime
+  endDate       DateTime?
+  // Solo tarjeta: día del mes en que cierra el ciclo de facturación.
+  closingDay    Int?
+  active        Boolean              @default(true)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  account     Account?              @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  category    Category?             @relation(fields: [categoryId], references: [id])
+  occurrences ScheduledOccurrence[]
+
+  @@index([userId])
+}
+
+// Una cuota ya resuelta (pagada u omitida). Si se borra el gasto generado, la
+// cuota se borra con él y vuelve a quedar pendiente.
+model ScheduledOccurrence {
+  id                 String           @id @default(cuid())
+  scheduledPaymentId String
+  // Fecha de vencimiento de la regla (no la fecha en que se pagó).
+  dueDate            DateTime
+  status             OccurrenceStatus
+  // Monto pagado. En BILL coincide con el de la Transaction.
+  amount             Decimal?         @db.Decimal(12, 2)
+  transactionId      String?          @unique
+  createdAt          DateTime         @default(now())
+
+  scheduledPayment ScheduledPayment @relation(fields: [scheduledPaymentId], references: [id], onDelete: Cascade)
+  transaction      Transaction?     @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@unique([scheduledPaymentId, dueDate])
 }

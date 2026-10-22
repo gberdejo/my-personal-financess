@@ -56,3 +56,6 @@ Una línea de presupuesto tiene dos estados. Pendiente: círculo `size-5` con bo
 
 ### Cuenta regresiva
 `font-heading italic` con `formatCountdown(daysUntil(date))` ("faltan 43 días"); en `text-muted-foreground` si ya pasó o no hay fecha.
+
+### Calendario de pagos
+Grilla lunes–domingo en `md:` (`min-h-28`, días fuera del mes en `bg-muted/30`, hoy en círculo `bg-primary`); en móvil se reemplaza por agenda agrupada por día. Cada cuota usa la marca de Planificado → aplicado (`OccurrenceStatusMark`): pendiente punteada, pagada `bg-expense` con check, vencida punteada `border-destructive` con monto `text-destructive`, omitida `bg-muted` con guion y monto tachado.

@@ -1,18 +1,19 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { monthKey, monthLabel, shiftMonth } from "@/lib/date";
 
 export function MonthNav({ year, month }: { year: number; month: number }) {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
 
   function goTo(targetYear: number, targetMonth: number) {
     const params = new URLSearchParams(searchParams);
     params.set("month", monthKey(targetYear, targetMonth));
-    router.push(`/dashboard/transacciones?${params.toString()}`);
+    router.push(`${pathname}?${params.toString()}`);
   }
 
   const prev = shiftMonth(year, month, -1);

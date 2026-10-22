@@ -1,4 +1,11 @@
-import type { AccountType, BudgetTemplate, PaymentMethod, TransactionKind } from "@/generated/prisma/client";
+import type {
+  AccountType,
+  BudgetTemplate,
+  PaymentMethod,
+  ScheduledPaymentType,
+  ScheduleFrequency,
+  TransactionKind,
+} from "@/generated/prisma/client";
 
 export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   CASH: "Efectivo",
@@ -39,3 +46,22 @@ export const BUDGET_TEMPLATE_LABELS: Record<BudgetTemplate, string> = {
   SHOPPING: "Compras",
   BLANK: "En blanco",
 };
+
+export const SCHEDULED_PAYMENT_TYPE_LABELS: Record<ScheduledPaymentType, string> = {
+  BILL: "Servicio o gasto",
+  CREDIT_CARD: "Tarjeta de crédito",
+};
+
+export const SCHEDULE_FREQUENCY_LABELS: Record<ScheduleFrequency, string> = {
+  ONCE: "Una sola vez",
+  WEEKLY: "Semanal",
+  MONTHLY: "Mensual",
+  QUARTERLY: "Trimestral",
+  YEARLY: "Anual",
+};
+
+export const SCHEDULE_FREQUENCIES = Object.keys(SCHEDULE_FREQUENCY_LABELS) as ScheduleFrequency[];
+
+export function isScheduleFrequency(value: string): value is ScheduleFrequency {
+  return Object.hasOwn(SCHEDULE_FREQUENCY_LABELS, value);
+}
