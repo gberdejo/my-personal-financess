@@ -56,3 +56,20 @@ export function formatCountdown(days: number) {
   if (days === -1) return "fue ayer";
   return `fue hace ${-days} días`;
 }
+
+// Para el cronograma de tarjetas: "25 dic." y "lunes, 23 de feb.".
+const dayMonthFormatter = new Intl.DateTimeFormat("es-PE", { day: "numeric", month: "short", timeZone: "UTC" });
+const weekdayDayMonthFormatter = new Intl.DateTimeFormat("es-PE", {
+  weekday: "long",
+  day: "numeric",
+  month: "short",
+  timeZone: "UTC",
+});
+
+export function formatDayMonth(date: Date) {
+  return dayMonthFormatter.format(date);
+}
+
+export function formatWeekdayDayMonth(date: Date) {
+  return weekdayDayMonthFormatter.format(date);
+}

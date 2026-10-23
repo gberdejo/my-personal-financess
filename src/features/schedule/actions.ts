@@ -3,15 +3,16 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/auth";
-import { parseDateOnly, todayInLima } from "@/lib/date";
-import { isPaymentMethod, isScheduleFrequency } from "@/lib/labels";
-import { isOccurrenceDate, nextDayOfMonth } from "@/lib/schedule";
+import { parseDateOnly } from "@/lib/date";
+import { isPaymentMethod, isScheduleFrequency, MONTH_NAMES } from "@/lib/labels";
+import { billingMonth, monthIndex, monthStart, periodsByMonth, ruleBillingMonth } from "@/lib/schedule";
 import type { PaymentMethod, ScheduledPaymentType, ScheduleFrequency } from "@/generated/prisma/client";
+import { freezeRuleMonthsWithData, isDueDateOf, moveDueDate } from "./periods";
 
 export type ScheduleActionState = { error?: string } | null;
 
 function revalidateSchedule() {
-  revalidatePath("/dashboard/calendario");
+  revalidatePath("/dashboard/calendario", "layout");
 }
 
 // Pagar o deshacer una cuota crea/borra transacciones, así que también cambian
@@ -33,9 +34,21 @@ function readOptionalDate(formData: FormData, field: string): Date | null | "inv
   return parseDateOnly(raw) ?? "invalid";
 }
 
-function readDay(formData: FormData, field: string) {
-  const day = Number(formData.get(field));
-  return Number.isInteger(day) && day >= 1 && day <= 31 ? day : null;
+const DAY_MS = 24 * 60 * 60 * 1000;
+// Los bancos pagan entre 2 y 4 semanas después del cierre; más es casi seguro un error.
+const MAX_DAYS_CLOSING_TO_DUE = 62;
+
+function validatePeriod(closingDate: Date, dueDate: Date) {
+  if (dueDate <= closingDate) return "La fecha de pago tiene que ser después del cierre.";
+  if ((dueDate.getTime() - closingDate.getTime()) / DAY_MS > MAX_DAYS_CLOSING_TO_DUE) {
+    return "La fecha de pago tiene que caer dentro de los 2 meses siguientes al cierre.";
+  }
+  return null;
+}
+
+// Si dos meses terminan con la misma fecha, la base rechaza el cambio por unicidad.
+function isUniqueViolation(error: unknown) {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "P2002";
 }
 
 async function findOwnAccount(userId: string, accountId: string) {
@@ -66,16 +79,21 @@ type PaymentData = {
   startDate: Date;
   endDate: Date | null;
   closingDay: number | null;
+  dueDay: number | null;
 };
 
-// Valida el formulario de un pago programado. `currentStartDate` (al editar una
-// tarjeta) se conserva si no cambió el día de pago, para no mover el historial.
+type FormPeriod = { closingDate: Date; dueDate: Date };
+
+// Valida el formulario de un pago programado. En tarjetas, las fechas de cierre y
+// pago son las del próximo estado de cuenta: definen la regla para los meses sin
+// cronograma y se guardan como un mes del cronograma. `currentStartDate` (al
+// editar) se conserva salvo que el nuevo pago sea anterior.
 async function readPaymentForm(
   userId: string,
   formData: FormData,
   type: ScheduledPaymentType,
   currentStartDate?: Date
-): Promise<{ error: string } | { data: PaymentData }> {
+): Promise<{ error: string } | { data: PaymentData; period: FormPeriod | null }> {
   const name = readText(formData, "name");
   if (!name) return { error: "El nombre es obligatorio." };
 
@@ -88,15 +106,14 @@ async function readPaymentForm(
   const paymentMethod = methodRaw && isPaymentMethod(methodRaw) ? methodRaw : null;
 
   if (type === "CREDIT_CARD") {
-    const dueDay = readDay(formData, "dueDay");
-    const closingDay = readDay(formData, "closingDay");
-    if (!dueDay) return { error: "El día de pago debe estar entre 1 y 31." };
-    if (!closingDay) return { error: "El día de cierre debe estar entre 1 y 31." };
+    const closingDate = readOptionalDate(formData, "closingDate");
+    const dueDate = readOptionalDate(formData, "dueDate");
+    if (!closingDate || closingDate === "invalid") return { error: "La fecha de cierre no es válida." };
+    if (!dueDate || dueDate === "invalid") return { error: "La fecha de pago no es válida." };
+    const periodError = validatePeriod(closingDate, dueDate);
+    if (periodError) return { error: periodError };
 
-    const startDate =
-      currentStartDate && currentStartDate.getUTCDate() === dueDay
-        ? currentStartDate
-        : nextDayOfMonth(dueDay, todayInLima());
+    const startDate = currentStartDate && currentStartDate <= dueDate ? currentStartDate : dueDate;
 
     return {
       data: {
@@ -109,8 +126,10 @@ async function readPaymentForm(
         frequency: "MONTHLY",
         startDate,
         endDate: null,
-        closingDay,
+        closingDay: closingDate.getUTCDate(),
+        dueDay: dueDate.getUTCDate(),
       },
+      period: { closingDate, dueDate },
     };
   }
 
@@ -143,8 +162,14 @@ async function readPaymentForm(
       startDate,
       endDate,
       closingDay: null,
+      dueDay: null,
     },
+    period: null,
   };
+}
+
+function periodMonth(period: FormPeriod) {
+  return monthStart(monthIndex(period.closingDate));
 }
 
 // ---------- Pagos programados ----------
@@ -159,7 +184,14 @@ export async function createScheduledPayment(
   const result = await readPaymentForm(userId, formData, type);
   if ("error" in result) return { error: result.error };
 
-  await prisma.scheduledPayment.create({ data: { userId, ...result.data } });
+  const { period } = result;
+  await prisma.scheduledPayment.create({
+    data: {
+      userId,
+      ...result.data,
+      billingPeriods: period ? { create: { month: periodMonth(period), ...period } } : undefined,
+    },
+  });
 
   revalidateSchedule();
   return null;
@@ -180,10 +212,115 @@ export async function updateScheduledPayment(
   const result = await readPaymentForm(userId, formData, payment.type, payment.startDate);
   if ("error" in result) return { error: result.error };
 
-  await prisma.scheduledPayment.update({
-    where: { id: payment.id },
-    data: { ...result.data, active: formData.get("active") === "on" },
+  const { period } = result;
+  const oldRule =
+    payment.closingDay && payment.dueDay
+      ? { startDate: payment.startDate, closingDay: payment.closingDay, dueDay: payment.dueDay }
+      : null;
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      if (period) {
+        // Los meses de la regla vieja con datos pasan al cronograma antes de cambiarla.
+        if (oldRule) await freezeRuleMonthsWithData(tx, payment.id, oldRule);
+
+        const month = periodMonth(period);
+        const where = { scheduledPaymentId_month: { scheduledPaymentId: payment.id, month } };
+        const existing = await tx.cardBillingPeriod.findUnique({ where });
+        if (existing) await moveDueDate(tx, payment.id, existing.dueDate, period.dueDate);
+        await tx.cardBillingPeriod.upsert({
+          where,
+          create: { scheduledPaymentId: payment.id, month, ...period },
+          update: period,
+        });
+      }
+      await tx.scheduledPayment.update({
+        where: { id: payment.id },
+        data: { ...result.data, active: formData.get("active") === "on" },
+      });
+    });
+  } catch (error) {
+    if (isUniqueViolation(error)) return { error: "Esa fecha de pago ya la usa otro mes de la tarjeta." };
+    throw error;
+  }
+
+  revalidateSchedule();
+  return null;
+}
+
+// ---------- Cronograma de facturación ----------
+
+// Guarda los 12 meses de un año. Cada mes lleva `closing-<m>` y `due-<m>`
+// (m = 0–11); un mes vacío vuelve a la regla. Lo que colgaba de un vencimiento
+// (pago, deuda, ruleteos) se mueve a su nueva fecha.
+export async function saveBillingSchedule(
+  scheduledPaymentId: string,
+  year: number,
+  _prevState: ScheduleActionState,
+  formData: FormData
+): Promise<ScheduleActionState> {
+  const userId = await requireUserId();
+
+  const payment = await prisma.scheduledPayment.findFirst({
+    where: { id: scheduledPaymentId, userId, type: "CREDIT_CARD" },
   });
+  if (!payment?.closingDay || !payment.dueDay) return { error: "Tarjeta inválida." };
+  const rule = { startDate: payment.startDate, closingDay: payment.closingDay, dueDay: payment.dueDay };
+
+  const rows: (FormPeriod | null)[] = [];
+  for (let m = 0; m < 12; m++) {
+    const closingDate = readOptionalDate(formData, `closing-${m}`);
+    const dueDate = readOptionalDate(formData, `due-${m}`);
+    const name = MONTH_NAMES[m];
+    if (!closingDate && !dueDate) {
+      rows.push(null);
+      continue;
+    }
+    if (!closingDate || closingDate === "invalid") return { error: `Falta el cierre de ${name}.` };
+    if (!dueDate || dueDate === "invalid") return { error: `Falta la fecha de pago de ${name}.` };
+    if (monthIndex(closingDate) !== year * 12 + m) return { error: `El cierre de ${name} tiene que caer en ${name}.` };
+    const periodError = validatePeriod(closingDate, dueDate);
+    if (periodError) return { error: `${name}: ${periodError}` };
+    rows.push({ closingDate, dueDate });
+  }
+
+  const filled = rows.filter((row): row is FormPeriod => row !== null);
+  for (let i = 1; i < filled.length; i++) {
+    if (filled[i].dueDate <= filled[i - 1].dueDate) return { error: "Las fechas de pago tienen que ir en orden." };
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const first = year * 12;
+      const existing = await tx.cardBillingPeriod.findMany({
+        where: { scheduledPaymentId: payment.id, month: { gte: monthStart(first), lt: monthStart(first + 12) } },
+        select: { closingDate: true, dueDate: true },
+      });
+      const byMonth = periodsByMonth(existing);
+
+      for (let m = 0; m < 12; m++) {
+        const index = first + m;
+        const month = monthStart(index);
+        const row = rows[m];
+        const where = { scheduledPaymentId_month: { scheduledPaymentId: payment.id, month } };
+
+        if (row) {
+          await moveDueDate(tx, payment.id, billingMonth(rule, byMonth, index).dueDate, row.dueDate);
+          await tx.cardBillingPeriod.upsert({
+            where,
+            create: { scheduledPaymentId: payment.id, month, ...row },
+            update: row,
+          });
+        } else if (byMonth.has(index)) {
+          await moveDueDate(tx, payment.id, byMonth.get(index)!.dueDate, ruleBillingMonth(rule, index).dueDate);
+          await tx.cardBillingPeriod.delete({ where });
+        }
+      }
+    });
+  } catch (error) {
+    if (isUniqueViolation(error)) return { error: "Hay dos meses con la misma fecha de pago." };
+    throw error;
+  }
 
   revalidateSchedule();
   return null;
@@ -203,7 +340,7 @@ async function findPendingOccurrence(userId: string, scheduledPaymentId: string,
   if (!payment) return { error: "Pago inválido." } as const;
 
   const dueDate = parseDateOnly(dueDateValue);
-  if (!dueDate || !isOccurrenceDate(payment, dueDate)) return { error: "Fecha de vencimiento inválida." } as const;
+  if (!dueDate || !(await isDueDateOf(payment, dueDate))) return { error: "Fecha de vencimiento inválida." } as const;
 
   const existing = await prisma.scheduledOccurrence.findUnique({
     where: { scheduledPaymentId_dueDate: { scheduledPaymentId: payment.id, dueDate } },

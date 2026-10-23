@@ -128,6 +128,7 @@ model Transaction {
   category   Category    @relation(fields: [categoryId], references: [id])
   budgetItem          BudgetItem?
   scheduledOccurrence ScheduledOccurrence?
+  rouletteOperation   RouletteOperation?
 
   @@index([userId, date])
   @@index([accountId])
@@ -198,15 +199,20 @@ model ScheduledPayment {
   // Primera fecha, como medianoche UTC. Su día del mes es el día de pago.
   startDate     DateTime
   endDate       DateTime?
-  // Solo tarjeta: día del mes en que cierra el ciclo de facturación.
+  // Solo tarjeta: días de cierre y de pago de la regla. Se usan para los meses
+  // que no están en el cronograma (CardBillingPeriod).
   closingDay    Int?
+  dueDay        Int?
   active        Boolean              @default(true)
   createdAt     DateTime             @default(now())
   updatedAt     DateTime             @updatedAt
 
-  account     Account?              @relation(fields: [accountId], references: [id], onDelete: SetNull)
-  category    Category?             @relation(fields: [categoryId], references: [id])
-  occurrences ScheduledOccurrence[]
+  account            Account?              @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  category           Category?             @relation(fields: [categoryId], references: [id])
+  occurrences        ScheduledOccurrence[]
+  statements         CardStatement[]
+  rouletteOperations RouletteOperation[]
+  billingPeriods     CardBillingPeriod[]
 
   @@index([userId])
 }
@@ -227,5 +233,67 @@ model ScheduledOccurrence {
   scheduledPayment ScheduledPayment @relation(fields: [scheduledPaymentId], references: [id], onDelete: Cascade)
   transaction      Transaction?     @relation(fields: [transactionId], references: [id], onDelete: Cascade)
 
+  @@unique([scheduledPaymentId, dueDate])
+}
+
+// Deuda del estado de cuenta en un vencimiento de tarjeta. Si no se ingresó,
+// el calendario usa el estimado con los gastos con tarjeta del ciclo.
+model CardStatement {
+  id                 String   @id @default(cuid())
+  scheduledPaymentId String
+  dueDate            DateTime
+  amount             Decimal  @db.Decimal(12, 2)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  scheduledPayment ScheduledPayment @relation(fields: [scheduledPaymentId], references: [id], onDelete: Cascade)
+
+  @@unique([scheduledPaymentId, dueDate])
+}
+
+// Un "micro ruleteo" para pagar la tarjeta: se cargan `charge` a la tarjeta en
+// un proveedor que deposita charge − fee. Al registrarlo, la comisión se
+// guarda como gasto; si se borra ese gasto, vuelve a planificado.
+model RouletteOperation {
+  id                 String   @id @default(cuid())
+  userId             String
+  // Vencimiento de tarjeta que ayuda a cubrir (misma clave que las cuotas).
+  scheduledPaymentId String
+  dueDate            DateTime
+  // Día en que se hace, como medianoche UTC.
+  date               DateTime
+  provider           String
+  // 0.0200 = 2 %.
+  feeRate            Decimal  @db.Decimal(6, 4)
+  charge             Decimal  @db.Decimal(12, 2)
+  // charge × feeRate, redondeado a céntimos.
+  fee                Decimal  @db.Decimal(12, 2)
+  transactionId      String?  @unique
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  scheduledPayment ScheduledPayment @relation(fields: [scheduledPaymentId], references: [id], onDelete: Cascade)
+  transaction      Transaction?     @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@index([userId, date])
+  @@index([scheduledPaymentId, dueDate])
+}
+
+// Un mes del cronograma de facturación que publica el banco: cierre y pago
+// exactos (el banco los mueve a días hábiles). El mes de facturación es el del
+// cierre. Los meses sin fila usan la regla closingDay / dueDay.
+model CardBillingPeriod {
+  id                 String   @id @default(cuid())
+  scheduledPaymentId String
+  // Día 1 del mes de facturación, medianoche UTC.
+  month              DateTime
+  closingDate        DateTime
+  dueDate            DateTime
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  scheduledPayment ScheduledPayment @relation(fields: [scheduledPaymentId], references: [id], onDelete: Cascade)
+
+  @@unique([scheduledPaymentId, month])
   @@unique([scheduledPaymentId, dueDate])
 }

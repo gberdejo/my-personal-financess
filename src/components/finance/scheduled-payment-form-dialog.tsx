@@ -44,7 +44,9 @@ export type ScheduledPaymentValues = {
   // "YYYY-MM-DD"
   startDate: string;
   endDate: string | null;
-  closingDay: number | null;
+  // Solo tarjeta: cierre y pago del próximo estado de cuenta, "YYYY-MM-DD".
+  closingDate: string | null;
+  dueDate: string | null;
   active: boolean;
 };
 
@@ -95,7 +97,6 @@ export function ScheduledPaymentFormDialog({
   }, [pending, state, isEdit, initial]);
 
   const isCard = type === "CREDIT_CARD";
-  const dueDay = values?.startDate ? Number(values.startDate.slice(8, 10)) : undefined;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -160,36 +161,30 @@ export function ScheduledPaymentFormDialog({
             <>
               <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="schedule-closing-day">Día de cierre</Label>
+                  <Label htmlFor="schedule-closing-date">Fecha de cierre</Label>
                   <Input
-                    id="schedule-closing-day"
-                    name="closingDay"
-                    type="number"
-                    min="1"
-                    max="31"
-                    inputMode="numeric"
-                    defaultValue={values?.closingDay ?? undefined}
-                    placeholder="Ej. 20"
+                    id="schedule-closing-date"
+                    name="closingDate"
+                    type="date"
+                    defaultValue={values?.closingDate ?? undefined}
                     required
                   />
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="schedule-due-day">Día de pago</Label>
+                  <Label htmlFor="schedule-due-date">Fecha de pago</Label>
                   <Input
-                    id="schedule-due-day"
-                    name="dueDay"
-                    type="number"
-                    min="1"
-                    max="31"
-                    inputMode="numeric"
-                    defaultValue={dueDay}
-                    placeholder="Ej. 5"
+                    id="schedule-due-date"
+                    name="dueDate"
+                    type="date"
+                    defaultValue={values?.dueDate ?? undefined}
                     required
                   />
                 </div>
               </div>
               <p className="text-xs text-muted-foreground">
-                El monto estimado suma los gastos con método “Tarjeta de crédito” entre un cierre y el siguiente.
+                Las de tu próximo estado de cuenta. Si el banco las mueve cada mes, cargalas en el cronograma de la
+                tarjeta. El monto estimado suma los gastos con método “Tarjeta de crédito” entre un cierre y el
+                siguiente.
                 {hasCard && !isEdit && " Como los gastos no indican qué tarjeta se usó, todas tus tarjetas suman los mismos gastos."}
               </p>
             </>

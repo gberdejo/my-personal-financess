@@ -7,6 +7,7 @@ import { ScheduledPaymentFormDialog } from "@/components/finance/scheduled-payme
 import { ScheduledPaymentsList } from "@/components/finance/scheduled-payments-list";
 import { getAccounts } from "@/features/accounts/queries";
 import { getCategories } from "@/features/categories/queries";
+import { getRouletteOpsForRange } from "@/features/roulette/queries";
 import {
   getCalendarMonth,
   getScheduledPayments,
@@ -14,8 +15,9 @@ import {
   getUpcomingAndOverdue,
   type CalendarEntry,
 } from "@/features/schedule/queries";
-import { daysUntil, monthLabel, parseMonthParam } from "@/lib/date";
+import { daysUntil, monthLabel, monthRange, parseMonthParam } from "@/lib/date";
 import { formatCurrency } from "@/lib/format";
+import { summarizeRoulette } from "@/lib/roulette";
 import { cn } from "@/lib/utils";
 
 function total(entries: CalendarEntry[]) {
@@ -38,9 +40,11 @@ function countLabel(count: number, singular: string, plural: string) {
 export default async function CalendarioPage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
   const { month: monthParam } = await searchParams;
   const { year, month } = parseMonthParam(monthParam);
+  const range = monthRange(year, month);
 
-  const [entries, { overdue, upcoming }, payments, suggestions, accounts, categories] = await Promise.all([
+  const [entries, operations, { overdue, upcoming }, payments, suggestions, accounts, categories] = await Promise.all([
     getCalendarMonth(year, month),
+    getRouletteOpsForRange(range.start, range.end),
     getUpcomingAndOverdue(),
     getScheduledPayments(),
     getScheduleSuggestions(),
@@ -51,6 +55,8 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
   const pendingInMonth = entries.filter((e) => e.status === "PENDING" || e.status === "OVERDUE");
   const attention = [...overdue, ...upcoming];
   const hasCard = payments.some((p) => p.type === "CREDIT_CARD");
+  const rouletteFees = summarizeRoulette(operations).fees;
+  const registeredFees = summarizeRoulette(operations.filter((op) => op.status === "DONE")).fees;
 
   return (
     <div className="flex flex-col gap-4">
@@ -74,7 +80,7 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
         </Card>
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className={cn("grid gap-4", operations.length > 0 ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3")}>
             <Card>
               <CardHeader>
                 <CardDescription>Por pagar en {monthLabel(year, month).toLowerCase()}</CardDescription>
@@ -113,9 +119,29 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
                 </p>
               </CardHeader>
             </Card>
+            {operations.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardDescription>Comisiones de ruleteo</CardDescription>
+                  <CardTitle className="font-sans text-2xl not-italic font-semibold tabular-nums text-expense">
+                    {formatCurrency(rouletteFees)}
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground">
+                    {countLabel(operations.length, "operación", "operaciones")} ·{" "}
+                    <span className="tabular-nums">{formatCurrency(registeredFees)}</span> registradas
+                  </p>
+                </CardHeader>
+              </Card>
+            )}
           </div>
 
-          <CalendarMonthGrid year={year} month={month} entries={entries} accounts={accounts} />
+          <CalendarMonthGrid
+            year={year}
+            month={month}
+            entries={entries}
+            operations={operations}
+            accounts={accounts}
+          />
 
           <div className="grid gap-4 lg:grid-cols-2">
             <Card className="pb-0">

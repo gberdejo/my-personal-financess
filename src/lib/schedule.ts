@@ -66,14 +66,6 @@ export function occurrencesInRange(rule: ScheduleRule, start: Date, end: Date): 
   return dates;
 }
 
-export function isOccurrenceDate(rule: ScheduleRule, date: Date) {
-  return occurrencesInRange(rule, date, shiftDay(date, 1)).length === 1;
-}
-
-export function nextOccurrence(rule: ScheduleRule, from: Date) {
-  return occurrencesInRange(rule, from, shiftDay(from, NEXT_LOOKAHEAD_DAYS))[0] ?? null;
-}
-
 // Primera fecha desde `from` con ese día exacto. Se salta los meses donde el día
 // no existe para que la regla guarde el día real (un 31 no queda como 28 para
 // siempre); los meses cortos después se recortan en `occurrencesInRange`.
@@ -84,14 +76,103 @@ export function nextDayOfMonth(day: number, from: Date) {
   }
 }
 
-// Ciclo de facturación que se paga en `dueDate`: si el cierre es antes del día
-// de pago, cierra ese mismo mes; si no, el mes anterior. Devuelve [start, end)
-// para filtrar gastos y el día de cierre. `dueDay` es el día de pago sin
-// recortar (la fecha puede caer antes en meses cortos).
-export function cardCycle(dueDate: Date, dueDay: number, closingDay: number) {
-  const year = dueDate.getUTCFullYear();
-  const month = dueDate.getUTCMonth() - (closingDay < dueDay ? 0 : 1);
-  const closing = clampedDate(year, month, closingDay);
-  const previousClosing = clampedDate(year, month - 1, closingDay);
-  return { start: shiftDay(previousClosing, 1), end: shiftDay(closing, 1), closing };
+// ---------- Tarjetas ----------
+
+// Un mes del cronograma del banco. El mes de facturación es el del cierre.
+export type BillingPeriod = { closingDate: Date; dueDate: Date };
+
+export type CardRule = { startDate: Date; closingDay: number; dueDay: number };
+
+export type CardOccurrence = {
+  dueDate: Date;
+  closingDate: Date;
+  // Consumos de este estado de cuenta: [cycleStart, closingDate].
+  cycleStart: Date;
+  // true = la fecha viene del cronograma; false = de la regla.
+  fromSchedule: boolean;
+};
+
+// Meses como número correlativo (año × 12 + mes) para recorrerlos sin Date.
+export function monthIndex(date: Date) {
+  return date.getUTCFullYear() * 12 + date.getUTCMonth();
+}
+
+export function monthStart(index: number) {
+  return new Date(Date.UTC(Math.floor(index / 12), index % 12, 1));
+}
+
+// Cierre y pago de un mes de facturación según la regla: si el cierre es antes
+// del día de pago, se paga ese mismo mes; si no, el siguiente.
+export function ruleBillingMonth(rule: CardRule, index: number): BillingPeriod {
+  const year = Math.floor(index / 12);
+  const month = index % 12;
+  return {
+    closingDate: clampedDate(year, month, rule.closingDay),
+    dueDate: clampedDate(year, month + (rule.closingDay < rule.dueDay ? 0 : 1), rule.dueDay),
+  };
+}
+
+// Mes de facturación del cronograma si existe; si no, el de la regla.
+export function billingMonth(rule: CardRule, periodsByMonth: Map<number, BillingPeriod>, index: number) {
+  const period = periodsByMonth.get(index);
+  return period ? { ...period, fromSchedule: true } : { ...ruleBillingMonth(rule, index), fromSchedule: false };
+}
+
+export function periodsByMonth(periods: BillingPeriod[]) {
+  return new Map(periods.map((period) => [monthIndex(period.closingDate), period]));
+}
+
+// Vencimientos de la tarjeta en [start, end). Los meses de la regla arrancan en
+// `startDate`; los del cronograma siempre cuentan. El pago cae a lo sumo dos
+// meses después del cierre, por eso se recorre desde dos meses antes.
+export function cardOccurrences(rule: CardRule, periods: BillingPeriod[], start: Date, end: Date) {
+  const byMonth = periodsByMonth(periods);
+  const result: CardOccurrence[] = [];
+  for (let index = monthIndex(start) - 2; index <= monthIndex(end); index++) {
+    const month = billingMonth(rule, byMonth, index);
+    if (month.dueDate < start || month.dueDate >= end) continue;
+    if (!month.fromSchedule && month.dueDate < rule.startDate) continue;
+    const previous = billingMonth(rule, byMonth, index - 1);
+    result.push({ ...month, cycleStart: shiftDay(previous.closingDate, 1) });
+  }
+  return result.sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime());
+}
+
+// ---------- Cualquier pago ----------
+
+export type PaymentRule = ScheduleRule & { closingDay: number | null; dueDay: number | null };
+
+export type PaymentOccurrence = {
+  dueDate: Date;
+  // Solo tarjeta. `end` es exclusivo (día siguiente al cierre).
+  cycle: { start: Date; end: Date; closing: Date } | null;
+};
+
+function cardRule(payment: PaymentRule): CardRule | null {
+  return payment.closingDay && payment.dueDay
+    ? { startDate: payment.startDate, closingDay: payment.closingDay, dueDay: payment.dueDay }
+    : null;
+}
+
+// Vencimientos de un pago en [start, end): las tarjetas usan su cronograma.
+export function paymentOccurrences(
+  payment: PaymentRule,
+  periods: BillingPeriod[],
+  start: Date,
+  end: Date
+): PaymentOccurrence[] {
+  const rule = cardRule(payment);
+  if (!rule) return occurrencesInRange(payment, start, end).map((dueDate) => ({ dueDate, cycle: null }));
+  return cardOccurrences(rule, periods, start, end).map((o) => ({
+    dueDate: o.dueDate,
+    cycle: { start: o.cycleStart, end: shiftDay(o.closingDate, 1), closing: o.closingDate },
+  }));
+}
+
+export function isPaymentDueDate(payment: PaymentRule, periods: BillingPeriod[], date: Date) {
+  return paymentOccurrences(payment, periods, date, shiftDay(date, 1)).length === 1;
+}
+
+export function nextPaymentOccurrence(payment: PaymentRule, periods: BillingPeriod[], from: Date) {
+  return paymentOccurrences(payment, periods, from, shiftDay(from, NEXT_LOOKAHEAD_DAYS))[0] ?? null;
 }

@@ -23,7 +23,7 @@ function revalidateAll() {
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/cuentas");
   // Un gasto con tarjeta cambia el estimado del calendario.
-  revalidatePath("/dashboard/calendario");
+  revalidatePath("/dashboard/calendario", "layout");
 }
 
 function readOptionalDate(formData: FormData, field: string): Date | null | "invalid" {

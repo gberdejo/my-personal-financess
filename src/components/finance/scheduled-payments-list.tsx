@@ -1,10 +1,13 @@
+import Link from "next/link";
+import { CalendarRange } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDeleteButton } from "@/components/finance/confirm-delete-button";
 import { ScheduledPaymentFormDialog } from "@/components/finance/scheduled-payment-form-dialog";
 import { deleteScheduledPayment } from "@/features/schedule/actions";
 import type { ScheduledPaymentRow } from "@/features/schedule/queries";
 import { toUTCDateInputValue } from "@/lib/date";
-import { formatCurrency, formatDate } from "@/lib/format";
+import { formatCurrency, formatDate, formatDayMonth } from "@/lib/format";
 import { SCHEDULE_FREQUENCY_LABELS } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 
@@ -12,7 +15,9 @@ type Option = { id: string; name: string };
 
 function ruleLabel(payment: ScheduledPaymentRow) {
   if (payment.type === "CREDIT_CARD") {
-    return `Tarjeta · cierra el ${payment.closingDay} y se paga el ${payment.startDate.getUTCDate()}`;
+    return payment.nextClosingDate
+      ? `Tarjeta · cierra el ${formatDayMonth(payment.nextClosingDate)}`
+      : "Tarjeta de crédito";
   }
   return [SCHEDULE_FREQUENCY_LABELS[payment.frequency], payment.categoryName].filter(Boolean).join(" · ");
 }
@@ -62,6 +67,19 @@ export function ScheduledPaymentsList({
                 )}
               </span>
               <div className="flex shrink-0 items-center">
+                {payment.type === "CREDIT_CARD" && (
+                  <Button
+                    asChild
+                    variant="ghost"
+                    size="icon"
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <Link href={`/dashboard/calendario/tarjeta/${payment.id}`}>
+                      <CalendarRange className="size-4" />
+                      <span className="sr-only">Cronograma de facturación</span>
+                    </Link>
+                  </Button>
+                )}
                 <ScheduledPaymentFormDialog
                   accounts={accounts}
                   categories={categories}
@@ -77,7 +95,8 @@ export function ScheduledPaymentsList({
                     frequency: payment.frequency,
                     startDate: toUTCDateInputValue(payment.startDate),
                     endDate: payment.endDate ? toUTCDateInputValue(payment.endDate) : null,
-                    closingDay: payment.closingDay,
+                    closingDate: payment.nextClosingDate ? toUTCDateInputValue(payment.nextClosingDate) : null,
+                    dueDate: payment.nextDate ? toUTCDateInputValue(payment.nextDate) : null,
                     active: payment.active,
                   }}
                 />

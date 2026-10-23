@@ -65,3 +65,25 @@ export const SCHEDULE_FREQUENCIES = Object.keys(SCHEDULE_FREQUENCY_LABELS) as Sc
 export function isScheduleFrequency(value: string): value is ScheduleFrequency {
   return Object.hasOwn(SCHEDULE_FREQUENCY_LABELS, value);
 }
+
+// Estado de una operación de ruleteo (ver features/roulette/queries.ts).
+export const ROULETTE_STATUS_LABELS: Record<"PLANNED" | "DUE" | "DONE", string> = {
+  PLANNED: "Planificada",
+  DUE: "Atrasada",
+  DONE: "Registrada",
+};
+
+export const MONTH_NAMES = [
+  "Enero",
+  "Febrero",
+  "Marzo",
+  "Abril",
+  "Mayo",
+  "Junio",
+  "Julio",
+  "Agosto",
+  "Septiembre",
+  "Octubre",
+  "Noviembre",
+  "Diciembre",
+];

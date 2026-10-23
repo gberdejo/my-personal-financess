@@ -1,8 +1,25 @@
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/auth";
-import { monthKey, monthRange, shiftDay, shiftMonth, todayInLima, toUTCDateInputValue } from "@/lib/date";
+import {
+  monthKey,
+  monthRange,
+  parseDateOnly,
+  shiftDay,
+  shiftMonth,
+  todayInLima,
+  toUTCDateInputValue,
+} from "@/lib/date";
 import { normalizeReason } from "@/lib/reason";
-import { cardCycle, nextDayOfMonth, nextOccurrence, occurrencesInRange } from "@/lib/schedule";
+import { summarizeRoulette } from "@/lib/roulette";
+import {
+  billingMonth,
+  monthStart,
+  nextDayOfMonth,
+  nextPaymentOccurrence,
+  paymentOccurrences,
+  periodsByMonth,
+} from "@/lib/schedule";
+import { loadBillingPeriods } from "./periods";
 import type {
   PaymentMethod,
   ScheduledPaymentType,
@@ -21,53 +38,81 @@ export type CalendarEntry = {
   // "YYYY-MM-DD" del vencimiento, para las acciones.
   dueDateValue: string;
   status: OccurrenceStatusView;
-  // Pagado: lo que se pagó. Pendiente: el estimado (en tarjeta, los gastos del ciclo).
+  // Pagado: lo que se pagó. Pendiente: la deuda ingresada (tarjeta) o el estimado.
   amount: number;
+  // En tarjeta, los gastos con tarjeta del ciclo; si no, el monto de la regla.
   estimated: number;
+  // Solo tarjeta: deuda del estado de cuenta ingresada para este vencimiento.
+  statementAmount: number | null;
+  // Solo tarjeta: ruleteos planificados para cubrir este vencimiento.
+  roulette: { count: number; received: number; fees: number } | null;
   transactionId: string | null;
   accountId: string | null;
   paymentMethod: PaymentMethod | null;
   // Solo tarjeta. `end` es exclusivo; `open` = el ciclo todavía no cerró.
-  cycle: { start: Date; end: Date; open: boolean } | null;
+  cycle: { start: Date; end: Date; closing: Date; open: boolean } | null;
 };
 
 // Cuánto hacia atrás se buscan cuotas vencidas sin pagar.
 const OVERDUE_LOOKBACK_DAYS = 90;
 const UPCOMING_DAYS = 7;
+// Hasta dónde se busca el próximo vencimiento (alcanza para un pago anual).
+const NEXT_LOOKAHEAD_DAYS = 400;
+
+const PAYMENT_INCLUDE = { category: { select: { name: true } } } as const;
 
 async function loadActivePayments(userId: string) {
   return prisma.scheduledPayment.findMany({
     where: { userId, active: true },
-    include: { category: { select: { name: true } } },
+    include: PAYMENT_INCLUDE,
     orderBy: { createdAt: "asc" },
   });
 }
 
 type LoadedPayment = Awaited<ReturnType<typeof loadActivePayments>>[number];
 
+function entryKey(scheduledPaymentId: string, dueDate: Date) {
+  return `${scheduledPaymentId}:${dueDate.getTime()}`;
+}
+
 // Cruza las fechas de cada regla en [start, end) con las cuotas ya resueltas y,
-// para tarjetas, suma los gastos con tarjeta de cada ciclo.
+// para tarjetas, suma los gastos con tarjeta de cada ciclo y agrega la deuda
+// ingresada y el ruleteo planificado.
 async function buildEntries(userId: string, payments: LoadedPayment[], start: Date, end: Date) {
   const today = todayInLima();
 
+  const cardIds = payments.filter((p) => p.type === "CREDIT_CARD").map((p) => p.id);
+  const periods = await loadBillingPeriods(cardIds, start, end);
   const dated = payments.flatMap((payment) =>
-    occurrencesInRange(payment, start, end).map((dueDate) => {
-      const cycle =
-        payment.type === "CREDIT_CARD" && payment.closingDay
-          ? cardCycle(dueDate, payment.startDate.getUTCDate(), payment.closingDay)
-          : null;
-      return { payment, dueDate, cycle };
-    })
+    paymentOccurrences(payment, periods.get(payment.id) ?? [], start, end).map(({ dueDate, cycle }) => ({
+      payment,
+      dueDate,
+      cycle,
+    }))
   );
   if (dated.length === 0) return [];
 
-  const stored = await prisma.scheduledOccurrence.findMany({
-    where: {
-      scheduledPaymentId: { in: [...new Set(dated.map((d) => d.payment.id))] },
-      dueDate: { gte: start, lt: end },
-    },
-  });
-  const storedByKey = new Map(stored.map((o) => [`${o.scheduledPaymentId}:${o.dueDate.getTime()}`, o]));
+  const inRange = {
+    scheduledPaymentId: { in: [...new Set(dated.map((d) => d.payment.id))] },
+    dueDate: { gte: start, lt: end },
+  };
+  const [stored, statements, operations] = await Promise.all([
+    prisma.scheduledOccurrence.findMany({ where: inRange }),
+    prisma.cardStatement.findMany({ where: inRange }),
+    prisma.rouletteOperation.findMany({
+      where: inRange,
+      select: { scheduledPaymentId: true, dueDate: true, charge: true, fee: true },
+    }),
+  ]);
+  const storedByKey = new Map(stored.map((o) => [entryKey(o.scheduledPaymentId, o.dueDate), o]));
+  const statementByKey = new Map(statements.map((s) => [entryKey(s.scheduledPaymentId, s.dueDate), Number(s.amount)]));
+  const operationsByKey = new Map<string, { charge: number; fee: number }[]>();
+  for (const op of operations) {
+    const key = entryKey(op.scheduledPaymentId, op.dueDate);
+    const list = operationsByKey.get(key) ?? [];
+    list.push({ charge: Number(op.charge), fee: Number(op.fee) });
+    operationsByKey.set(key, list);
+  }
 
   const cycles = dated.flatMap((d) => (d.cycle ? [d.cycle] : []));
   const cardExpenses = cycles.length
@@ -87,7 +132,11 @@ async function buildEntries(userId: string, payments: LoadedPayment[], start: Da
 
   return dated
     .map(({ payment, dueDate, cycle }): CalendarEntry => {
-      const occurrence = storedByKey.get(`${payment.id}:${dueDate.getTime()}`);
+      const key = entryKey(payment.id, dueDate);
+      const occurrence = storedByKey.get(key);
+      const statementAmount = statementByKey.get(key) ?? null;
+      const ops = operationsByKey.get(key);
+      const totals = ops ? summarizeRoulette(ops) : null;
       const estimated = cycle
         ? cardExpenses
             .filter((t) => t.date >= cycle.start && t.date < cycle.end)
@@ -103,15 +152,34 @@ async function buildEntries(userId: string, payments: LoadedPayment[], start: Da
         dueDate,
         dueDateValue: toUTCDateInputValue(dueDate),
         status: occurrence?.status ?? (dueDate < today ? "OVERDUE" : "PENDING"),
-        amount: occurrence?.amount != null ? Number(occurrence.amount) : estimated,
+        amount: occurrence?.amount != null ? Number(occurrence.amount) : (statementAmount ?? estimated),
         estimated,
+        statementAmount,
+        roulette: ops && totals ? { count: ops.length, received: totals.received, fees: totals.fees } : null,
         transactionId: occurrence?.transactionId ?? null,
         accountId: payment.accountId,
         paymentMethod: payment.paymentMethod,
-        cycle: cycle ? { start: cycle.start, end: cycle.end, open: cycle.end > today } : null,
+        cycle: cycle ? { start: cycle.start, end: cycle.end, closing: cycle.closing, open: cycle.end > today } : null,
       };
     })
     .sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime() || a.name.localeCompare(b.name));
+}
+
+// Un vencimiento puntual (para la página de deuda y ruleteo de una tarjeta).
+export async function getCalendarEntry(scheduledPaymentId: string, dueDateValue: string) {
+  const userId = await requireUserId();
+  const dueDate = parseDateOnly(dueDateValue);
+  if (!dueDate) return null;
+
+  const payment = await prisma.scheduledPayment.findFirst({
+    where: { id: scheduledPaymentId, userId },
+    include: PAYMENT_INCLUDE,
+  });
+  if (!payment) return null;
+
+  // Solo devuelve algo si `dueDate` es un vencimiento real del pago.
+  const [entry] = await buildEntries(userId, [payment], dueDate, shiftDay(dueDate, 1));
+  return entry ?? null;
 }
 
 export async function getCalendarMonth(year: number, month: number) {
@@ -152,8 +220,11 @@ export type ScheduledPaymentRow = {
   startDate: Date;
   endDate: Date | null;
   closingDay: number | null;
+  dueDay: number | null;
   active: boolean;
   nextDate: Date | null;
+  // Solo tarjeta: cierre del próximo estado de cuenta.
+  nextClosingDate: Date | null;
 };
 
 export async function getScheduledPayments(): Promise<ScheduledPaymentRow[]> {
@@ -166,23 +237,84 @@ export async function getScheduledPayments(): Promise<ScheduledPaymentRow[]> {
     orderBy: [{ active: "desc" }, { createdAt: "asc" }],
   });
 
-  return payments.map((p) => ({
-    id: p.id,
-    type: p.type,
-    name: p.name,
-    categoryId: p.categoryId,
-    categoryName: p.category?.name ?? null,
-    accountId: p.accountId,
-    accountName: p.account?.name ?? null,
-    paymentMethod: p.paymentMethod,
-    amount: p.amount != null ? Number(p.amount) : null,
-    frequency: p.frequency,
-    startDate: p.startDate,
-    endDate: p.endDate,
-    closingDay: p.closingDay,
-    active: p.active,
-    nextDate: p.active ? nextOccurrence(p, today) : null,
-  }));
+  const cardIds = payments.filter((p) => p.type === "CREDIT_CARD").map((p) => p.id);
+  const periods = await loadBillingPeriods(cardIds, today, shiftDay(today, NEXT_LOOKAHEAD_DAYS));
+
+  return payments.map((p) => {
+    const next = p.active ? nextPaymentOccurrence(p, periods.get(p.id) ?? [], today) : null;
+    return {
+      id: p.id,
+      type: p.type,
+      name: p.name,
+      categoryId: p.categoryId,
+      categoryName: p.category?.name ?? null,
+      accountId: p.accountId,
+      accountName: p.account?.name ?? null,
+      paymentMethod: p.paymentMethod,
+      amount: p.amount != null ? Number(p.amount) : null,
+      frequency: p.frequency,
+      startDate: p.startDate,
+      endDate: p.endDate,
+      closingDay: p.closingDay,
+      dueDay: p.dueDay,
+      active: p.active,
+      nextDate: next?.dueDate ?? null,
+      nextClosingDate: next?.cycle?.closing ?? null,
+    };
+  });
+}
+
+// ---------- Cronograma de una tarjeta ----------
+
+export type BillingScheduleRow = {
+  // 0–11, mes de facturación (el del cierre).
+  month: number;
+  cycleStart: Date;
+  closingDate: Date;
+  dueDate: Date;
+  // false = todavía sale de la regla (no se cargó del cronograma del banco).
+  fromSchedule: boolean;
+  // Estado del vencimiento en el calendario (null si la regla aún no empezó).
+  entry: CalendarEntry | null;
+};
+
+export async function getCardSchedule(scheduledPaymentId: string, year: number) {
+  const userId = await requireUserId();
+
+  const payment = await prisma.scheduledPayment.findFirst({
+    where: { id: scheduledPaymentId, userId, type: "CREDIT_CARD" },
+    include: PAYMENT_INCLUDE,
+  });
+  if (!payment?.closingDay || !payment.dueDay) return null;
+  const rule = { startDate: payment.startDate, closingDay: payment.closingDay, dueDay: payment.dueDay };
+
+  // Incluye diciembre del año anterior: su cierre es el inicio de los consumos de enero.
+  const first = year * 12;
+  const periods = await prisma.cardBillingPeriod.findMany({
+    where: { scheduledPaymentId: payment.id, month: { gte: monthStart(first - 1), lt: monthStart(first + 12) } },
+    select: { closingDate: true, dueDate: true },
+  });
+  const byMonth = periodsByMonth(periods);
+
+  const months = Array.from({ length: 12 }, (_, month) => {
+    const current = billingMonth(rule, byMonth, first + month);
+    const previous = billingMonth(rule, byMonth, first + month - 1);
+    return { month, ...current, cycleStart: shiftDay(previous.closingDate, 1) };
+  });
+
+  const dueTimes = months.map((m) => m.dueDate.getTime());
+  const entries = await buildEntries(
+    userId,
+    [payment],
+    new Date(Math.min(...dueTimes)),
+    shiftDay(new Date(Math.max(...dueTimes)), 1)
+  );
+  const entryByDue = new Map(entries.map((e) => [e.dueDate.getTime(), e]));
+
+  return {
+    payment: { id: payment.id, name: payment.name },
+    rows: months.map((m): BillingScheduleRow => ({ ...m, entry: entryByDue.get(m.dueDate.getTime()) ?? null })),
+  };
 }
 
 // ---------- Sugerencias ----------

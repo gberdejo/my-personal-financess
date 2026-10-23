@@ -59,3 +59,9 @@ Una línea de presupuesto tiene dos estados. Pendiente: círculo `size-5` con bo
 
 ### Calendario de pagos
 Grilla lunes–domingo en `md:` (`min-h-28`, días fuera del mes en `bg-muted/30`, hoy en círculo `bg-primary`); en móvil se reemplaza por agenda agrupada por día. Cada cuota usa la marca de Planificado → aplicado (`OccurrenceStatusMark`): pendiente punteada, pagada `bg-expense` con check, vencida punteada `border-destructive` con monto `text-destructive`, omitida `bg-muted` con guion y monto tachado.
+
+### Ruleteo
+Las operaciones usan las mismas marcas que las cuotas (`ROULETTE_MARK`: planificada punteada, atrasada punteada `destructive`, registrada `bg-expense` con check) y el ícono `Repeat` para distinguirlas de los pagos en la grilla. Comisiones siempre en `text-expense`; "Falta cubrir" pasa a `text-income` cuando llega a 0. La barra de cobertura repite la de `BudgetProgress` (recibido vs. deuda).
+
+### Cronograma de tarjeta
+Tabla de 12 filas (en móvil, cada fila apila sus campos): mes, consumos (`formatDayMonth`), cierre y pago con `input type="date"` y el día de la semana debajo (`formatWeekdayDayMonth`). Los meses que todavía salen de la regla llevan la mini-etiqueta "Según la regla" y el texto de los inputs en `text-muted-foreground`; los editados, "Sin guardar" en `text-primary`. El estado de cada vencimiento reutiliza `OccurrenceStatusMark` y enlaza a "Deuda y ruleteo".

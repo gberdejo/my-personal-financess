@@ -16,7 +16,7 @@ function revalidateAll() {
   revalidatePath("/dashboard/cuentas");
   // Un gasto con tarjeta cambia el estimado del calendario, y borrar el gasto
   // de una cuota pagada la devuelve a pendiente.
-  revalidatePath("/dashboard/calendario");
+  revalidatePath("/dashboard/calendario", "layout");
   // Borrar un gasto aplicado desde un presupuesto devuelve su línea a pendiente.
   revalidatePath("/dashboard/presupuestos", "layout");
 }

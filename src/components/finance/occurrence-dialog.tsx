@@ -1,6 +1,8 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
+import Link from "next/link";
+import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -93,7 +95,9 @@ export function OccurrenceDialog({
         <div className="flex items-start justify-between gap-4 rounded-lg bg-muted/60 p-3">
           <div className="min-w-0">
             <p className="truncate text-sm font-medium">{entry.categoryName ?? "Tarjeta de crédito"}</p>
-            {entry.cycle && (
+            {entry.statementAmount !== null ? (
+              <p className="text-xs text-muted-foreground">Deuda del estado de cuenta</p>
+            ) : entry.cycle && (
               <p className="text-xs text-muted-foreground">
                 Gastos con tarjeta del {formatDate(entry.cycle.start)} al {formatDate(shiftDay(entry.cycle.end, -1))}
                 {entry.cycle.open && " · ciclo en curso"}
@@ -109,6 +113,32 @@ export function OccurrenceDialog({
             )}
           </div>
         </div>
+
+        {isCard && (
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+            <span className="text-muted-foreground">
+              {entry.roulette ? (
+                <>
+                  Ruleteado{" "}
+                  <span className="font-medium text-foreground tabular-nums">
+                    {formatCurrency(entry.roulette.received)}
+                  </span>{" "}
+                  · comisiones{" "}
+                  <span className="font-medium text-expense tabular-nums">{formatCurrency(entry.roulette.fees)}</span>
+                </>
+              ) : (
+                "Sin ruleteo planificado"
+              )}
+            </span>
+            <Link
+              href={`/dashboard/calendario/pago/${entry.scheduledPaymentId}/${entry.dueDateValue}`}
+              className="flex items-center gap-1 font-medium text-primary hover:underline"
+            >
+              Deuda y ruleteo
+              <ArrowRight className="size-3.5" />
+            </Link>
+          </div>
+        )}
 
         {resolved ? (
           <div className="flex flex-col gap-4">
