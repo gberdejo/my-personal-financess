@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/auth";
 import { parseDateOnly } from "@/lib/date";
+import { formatCurrency } from "@/lib/format";
 import { isPaymentMethod, isScheduleFrequency, MONTH_NAMES } from "@/lib/labels";
 import { billingMonth, monthIndex, monthStart, periodsByMonth, ruleBillingMonth } from "@/lib/schedule";
 import type { PaymentMethod, ScheduledPaymentType, ScheduleFrequency } from "@/generated/prisma/client";
@@ -13,6 +14,8 @@ export type ScheduleActionState = { error?: string } | null;
 
 function revalidateSchedule() {
   revalidatePath("/dashboard/calendario", "layout");
+  // Las cuotas de préstamos se pagan desde el calendario.
+  revalidatePath("/dashboard/prestamos", "layout");
 }
 
 // Pagar o deshacer una cuota crea/borra transacciones, así que también cambian
@@ -208,6 +211,8 @@ export async function updateScheduledPayment(
 
   const payment = await findOwnPayment(userId, scheduledPaymentId);
   if (!payment) return { error: "No se pudo actualizar el pago." };
+  // Los préstamos se editan desde su página (cronograma de cuotas).
+  if (payment.type === "LOAN") return { error: "Editá el préstamo desde Préstamos." };
 
   const result = await readPaymentForm(userId, formData, payment.type, payment.startDate);
   if ("error" in result) return { error: result.error };
@@ -335,6 +340,26 @@ export async function deleteScheduledPayment(scheduledPaymentId: string) {
 
 // ---------- Cuotas ----------
 
+// "Cuota 5/180 · capital S/ 539.11 · interés S/ 1,524.23 · seguros S/ 137.16"
+async function installmentDescription(scheduledPaymentId: string, dueDate: Date) {
+  const [installment, count] = await Promise.all([
+    prisma.loanInstallment.findUnique({
+      where: { scheduledPaymentId_dueDate: { scheduledPaymentId, dueDate } },
+    }),
+    prisma.loanInstallment.count({ where: { scheduledPaymentId } }),
+  ]);
+  if (!installment) return null;
+  const insurance = Number(installment.lifeInsurance) + Number(installment.otherCharges);
+  return [
+    `Cuota ${installment.number}/${count}`,
+    `capital ${formatCurrency(Number(installment.principal))}`,
+    `interés ${formatCurrency(Number(installment.interest))}`,
+    insurance > 0 ? `seguros ${formatCurrency(insurance)}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 async function findPendingOccurrence(userId: string, scheduledPaymentId: string, dueDateValue: string) {
   const payment = await findOwnPayment(userId, scheduledPaymentId);
   if (!payment) return { error: "Pago inválido." } as const;
@@ -366,8 +391,9 @@ export async function payOccurrence(
   const amount = Number(formData.get("amount"));
   if (!amount || amount <= 0) return { error: "El monto debe ser mayor a 0." };
 
-  // La tarjeta solo se marca: sus gastos ya están registrados.
-  if (payment.type === "CREDIT_CARD") {
+  // La tarjeta solo se marca: sus gastos ya están registrados. Lo mismo si el
+  // pago ya se cargó en Transacciones (ej. cuotas de un préstamo ya en curso).
+  if (payment.type === "CREDIT_CARD" || formData.get("markOnly") === "on") {
     await prisma.scheduledOccurrence.create({
       data: { scheduledPaymentId: payment.id, dueDate, status: "PAID", amount },
     });
@@ -384,6 +410,7 @@ export async function payOccurrence(
   if (!account) return { error: "Elegí una cuenta." };
   if (!payment.categoryId) return { error: "El pago no tiene categoría." };
   const categoryId = payment.categoryId;
+  const description = payment.type === "LOAN" ? await installmentDescription(payment.id, dueDate) : null;
 
   await prisma.$transaction(async (tx) => {
     const transaction = await tx.transaction.create({
@@ -395,6 +422,7 @@ export async function payOccurrence(
         amount,
         // El nombre del pago es el motivo, así se agrupa con los anteriores.
         reason: payment.name,
+        description,
         date,
         paymentMethod,
       },

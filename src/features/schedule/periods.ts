@@ -7,9 +7,10 @@ import {
   monthStart,
   type BillingPeriod,
   type CardRule,
+  type PaymentDateSources,
   type PaymentRule,
 } from "@/lib/schedule";
-import type { Prisma } from "@/generated/prisma/client";
+import type { Prisma, ScheduledPaymentType } from "@/generated/prisma/client";
 
 // Un vencimiento necesita el cierre de su mes y el del anterior (hasta ~3 meses
 // antes del pago) y puede caer hasta ~2 meses después del cierre.
@@ -36,10 +37,40 @@ export async function loadBillingPeriods(paymentIds: string[], start: Date, end:
   return byPayment;
 }
 
-// ¿`date` es un vencimiento de este pago? (las tarjetas, según su cronograma)
+// Fechas guardadas de cada pago que afectan vencimientos en [start, end): el
+// cronograma de las tarjetas y las cuotas de los préstamos.
+export async function loadDateSources(payments: { id: string; type: ScheduledPaymentType }[], start: Date, end: Date) {
+  const cardIds = payments.filter((p) => p.type === "CREDIT_CARD").map((p) => p.id);
+  const loanIds = payments.filter((p) => p.type === "LOAN").map((p) => p.id);
+
+  const [periods, installments] = await Promise.all([
+    loadBillingPeriods(cardIds, start, end),
+    loanIds.length
+      ? prisma.loanInstallment.findMany({
+          where: { scheduledPaymentId: { in: loanIds }, dueDate: { gte: start, lt: end } },
+          select: { scheduledPaymentId: true, dueDate: true },
+        })
+      : [],
+  ]);
+
+  const installmentDates = new Map<string, Date[]>();
+  for (const installment of installments) {
+    const list = installmentDates.get(installment.scheduledPaymentId) ?? [];
+    list.push(installment.dueDate);
+    installmentDates.set(installment.scheduledPaymentId, list);
+  }
+
+  return (paymentId: string): PaymentDateSources => ({
+    periods: periods.get(paymentId) ?? [],
+    installmentDates: installmentDates.get(paymentId) ?? [],
+  });
+}
+
+// ¿`date` es un vencimiento de este pago? (tarjetas según su cronograma,
+// préstamos según sus cuotas)
 export async function isDueDateOf(payment: PaymentRule & { id: string }, date: Date) {
-  const periods = await loadBillingPeriods([payment.id], date, shiftDay(date, 1));
-  return isPaymentDueDate(payment, periods.get(payment.id) ?? [], date);
+  const sources = await loadDateSources([payment], date, shiftDay(date, 1));
+  return isPaymentDueDate(payment, sources(payment.id), date);
 }
 
 // Todo lo que cuelga de un vencimiento (cuota resuelta, deuda, ruleteos) se

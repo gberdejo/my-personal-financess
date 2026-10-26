@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CalendarRange } from "lucide-react";
+import { CalendarRange, HandCoins } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDeleteButton } from "@/components/finance/confirm-delete-button";
@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 type Option = { id: string; name: string };
 
 function ruleLabel(payment: ScheduledPaymentRow) {
+  if (payment.type === "LOAN") return ["Préstamo", payment.categoryName].filter(Boolean).join(" · ");
   if (payment.type === "CREDIT_CARD") {
     return payment.nextClosingDate
       ? `Tarjeta · cierra el ${formatDayMonth(payment.nextClosingDate)}`
@@ -67,6 +68,19 @@ export function ScheduledPaymentsList({
                 )}
               </span>
               <div className="flex shrink-0 items-center">
+                {payment.type === "LOAN" && (
+                  <Button
+                    asChild
+                    variant="ghost"
+                    size="icon"
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <Link href={`/dashboard/prestamos/${payment.id}`}>
+                      <HandCoins className="size-4" />
+                      <span className="sr-only">Ver préstamo</span>
+                    </Link>
+                  </Button>
+                )}
                 {payment.type === "CREDIT_CARD" && (
                   <Button
                     asChild
@@ -80,26 +94,28 @@ export function ScheduledPaymentsList({
                     </Link>
                   </Button>
                 )}
-                <ScheduledPaymentFormDialog
-                  accounts={accounts}
-                  categories={categories}
-                  hasCard={hasCard}
-                  payment={{
-                    id: payment.id,
-                    type: payment.type,
-                    name: payment.name,
-                    categoryId: payment.categoryId,
-                    accountId: payment.accountId,
-                    paymentMethod: payment.paymentMethod,
-                    amount: payment.amount,
-                    frequency: payment.frequency,
-                    startDate: toUTCDateInputValue(payment.startDate),
-                    endDate: payment.endDate ? toUTCDateInputValue(payment.endDate) : null,
-                    closingDate: payment.nextClosingDate ? toUTCDateInputValue(payment.nextClosingDate) : null,
-                    dueDate: payment.nextDate ? toUTCDateInputValue(payment.nextDate) : null,
-                    active: payment.active,
-                  }}
-                />
+                {payment.type !== "LOAN" && (
+                  <ScheduledPaymentFormDialog
+                    accounts={accounts}
+                    categories={categories}
+                    hasCard={hasCard}
+                    payment={{
+                      id: payment.id,
+                      type: payment.type,
+                      name: payment.name,
+                      categoryId: payment.categoryId,
+                      accountId: payment.accountId,
+                      paymentMethod: payment.paymentMethod,
+                      amount: payment.amount,
+                      frequency: payment.frequency,
+                      startDate: toUTCDateInputValue(payment.startDate),
+                      endDate: payment.endDate ? toUTCDateInputValue(payment.endDate) : null,
+                      closingDate: payment.nextClosingDate ? toUTCDateInputValue(payment.nextClosingDate) : null,
+                      dueDate: payment.nextDate ? toUTCDateInputValue(payment.nextDate) : null,
+                      active: payment.active,
+                    }}
+                  />
+                )}
                 <ConfirmDeleteButton
                   title={`¿Eliminar “${payment.name}”?`}
                   description="Deja de aparecer en el calendario. Los gastos que ya registraste con este pago se conservan en Transacciones."

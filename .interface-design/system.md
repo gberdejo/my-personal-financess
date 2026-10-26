@@ -65,3 +65,6 @@ Las operaciones usan las mismas marcas que las cuotas (`ROULETTE_MARK`: planific
 
 ### Cronograma de tarjeta
 Tabla de 12 filas (en móvil, cada fila apila sus campos): mes, consumos (`formatDayMonth`), cierre y pago con `input type="date"` y el día de la semana debajo (`formatWeekdayDayMonth`). Los meses que todavía salen de la regla llevan la mini-etiqueta "Según la regla" y el texto de los inputs en `text-muted-foreground`; los editados, "Sin guardar" en `text-primary`. El estado de cada vencimiento reutiliza `OccurrenceStatusMark` y enlaza a "Deuda y ruleteo".
+
+### Préstamos
+Tarjeta por préstamo como la de Presupuestos (chip con la entidad, próxima cuota en serif itálica con la cuenta regresiva, "Cancelado" en `text-income`). La barra `LoanProgress` muestra el capital devuelto en `bg-income` (es deuda que baja, no un gasto). El cronograma se agrupa por año con `<details>` (año actual y siguiente abiertos); cada cuota reutiliza `OccurrenceStatusMark` y un capital negativo (periodo de gracia) va en `text-destructive`.

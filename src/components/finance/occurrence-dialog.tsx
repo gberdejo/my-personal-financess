@@ -43,6 +43,8 @@ export function OccurrenceDialog({
 }) {
   const [open, setOpen] = useState(false);
   const [accountId, setAccountId] = useState(entry.accountId ?? "");
+  // Ya está en Transacciones: solo se marca, sin crear otro gasto.
+  const [markOnly, setMarkOnly] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [state, formAction, pending] = useActionState(
     payOccurrence.bind(null, entry.scheduledPaymentId, entry.dueDateValue),
@@ -60,7 +62,10 @@ export function OccurrenceDialog({
 
   function handleOpenChange(next: boolean) {
     setOpen(next);
-    if (next) setError(null);
+    if (next) {
+      setError(null);
+      setMarkOnly(false);
+    }
   }
 
   function skip() {
@@ -113,6 +118,23 @@ export function OccurrenceDialog({
             )}
           </div>
         </div>
+
+        {entry.installment && (
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+            <span className="text-muted-foreground tabular-nums">
+              Cuota {entry.installment.number}/{entry.installment.count} · capital{" "}
+              {formatCurrency(entry.installment.principal)} · interés {formatCurrency(entry.installment.interest)}
+              {entry.installment.insurance > 0 && ` · seguros ${formatCurrency(entry.installment.insurance)}`}
+            </span>
+            <Link
+              href={`/dashboard/prestamos/${entry.scheduledPaymentId}`}
+              className="flex items-center gap-1 font-medium text-primary hover:underline"
+            >
+              Ver préstamo
+              <ArrowRight className="size-3.5" />
+            </Link>
+          </div>
+        )}
 
         {isCard && (
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
@@ -176,9 +198,24 @@ export function OccurrenceDialog({
               )}
             </div>
 
-            {isCard ? (
+            {!isCard && (
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  name="markOnly"
+                  checked={markOnly}
+                  onChange={(e) => setMarkOnly(e.target.checked)}
+                  className="size-4 accent-primary"
+                />
+                Ya está en Transacciones: solo marcar como pagada
+              </label>
+            )}
+
+            {isCard || markOnly ? (
               <p className="text-xs text-muted-foreground">
-                Solo se marca como pagada: los gastos de la tarjeta ya están registrados en Transacciones.
+                {isCard
+                  ? "Solo se marca como pagada: los gastos de la tarjeta ya están registrados en Transacciones."
+                  : "No se crea otro gasto. Usalo para cuotas que pagaste antes de cargarlas acá."}
               </p>
             ) : (
               <>
@@ -219,8 +256,11 @@ export function OccurrenceDialog({
               <Button type="button" variant="ghost" onClick={skip} disabled={otherPending || pending}>
                 Omitir esta vez
               </Button>
-              <Button type="submit" disabled={pending || otherPending || (!isCard && accounts.length === 0)}>
-                {pending ? "Registrando…" : isCard ? "Marcar como pagada" : "Registrar pago"}
+              <Button
+                type="submit"
+                disabled={pending || otherPending || (!isCard && !markOnly && accounts.length === 0)}
+              >
+                {pending ? "Registrando…" : isCard || markOnly ? "Marcar como pagada" : "Registrar pago"}
               </Button>
             </DialogFooter>
           </form>

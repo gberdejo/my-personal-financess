@@ -50,6 +50,7 @@ export const BUDGET_TEMPLATE_LABELS: Record<BudgetTemplate, string> = {
 export const SCHEDULED_PAYMENT_TYPE_LABELS: Record<ScheduledPaymentType, string> = {
   BILL: "Servicio o gasto",
   CREDIT_CARD: "Tarjeta de crédito",
+  LOAN: "Préstamo",
 };
 
 export const SCHEDULE_FREQUENCY_LABELS: Record<ScheduleFrequency, string> = {
@@ -87,3 +88,9 @@ export const MONTH_NAMES = [
   "Noviembre",
   "Diciembre",
 ];
+
+export const LOAN_DATE_SHIFT_LABELS: Record<"NONE" | "SUNDAY" | "WEEKEND", string> = {
+  SUNDAY: "Si cae domingo, el lunes",
+  WEEKEND: "Si cae sábado o domingo, el lunes",
+  NONE: "No mover la fecha",
+};

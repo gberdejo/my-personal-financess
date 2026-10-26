@@ -1,4 +1,4 @@
-import type { ScheduleFrequency } from "@/generated/prisma/client";
+import type { ScheduledPaymentType, ScheduleFrequency } from "@/generated/prisma/client";
 import { shiftDay } from "@/lib/date";
 
 // Todas las fechas son días calendario como medianoche UTC (igual que Transaction.date).
@@ -140,7 +140,17 @@ export function cardOccurrences(rule: CardRule, periods: BillingPeriod[], start:
 
 // ---------- Cualquier pago ----------
 
-export type PaymentRule = ScheduleRule & { closingDay: number | null; dueDay: number | null };
+export type PaymentRule = ScheduleRule & {
+  type: ScheduledPaymentType;
+  closingDay: number | null;
+  dueDay: number | null;
+};
+
+// Fechas guardadas que reemplazan a la regla: el cronograma de una tarjeta y las
+// cuotas de un préstamo.
+export type PaymentDateSources = { periods: BillingPeriod[]; installmentDates: Date[] };
+
+export const NO_DATE_SOURCES: PaymentDateSources = { periods: [], installmentDates: [] };
 
 export type PaymentOccurrence = {
   dueDate: Date;
@@ -154,25 +164,32 @@ function cardRule(payment: PaymentRule): CardRule | null {
     : null;
 }
 
-// Vencimientos de un pago en [start, end): las tarjetas usan su cronograma.
+// Vencimientos de un pago en [start, end): los préstamos son sus cuotas y las
+// tarjetas usan su cronograma.
 export function paymentOccurrences(
   payment: PaymentRule,
-  periods: BillingPeriod[],
+  sources: PaymentDateSources,
   start: Date,
   end: Date
 ): PaymentOccurrence[] {
+  if (payment.type === "LOAN") {
+    return sources.installmentDates
+      .filter((dueDate) => dueDate >= start && dueDate < end)
+      .sort((a, b) => a.getTime() - b.getTime())
+      .map((dueDate) => ({ dueDate, cycle: null }));
+  }
   const rule = cardRule(payment);
   if (!rule) return occurrencesInRange(payment, start, end).map((dueDate) => ({ dueDate, cycle: null }));
-  return cardOccurrences(rule, periods, start, end).map((o) => ({
+  return cardOccurrences(rule, sources.periods, start, end).map((o) => ({
     dueDate: o.dueDate,
     cycle: { start: o.cycleStart, end: shiftDay(o.closingDate, 1), closing: o.closingDate },
   }));
 }
 
-export function isPaymentDueDate(payment: PaymentRule, periods: BillingPeriod[], date: Date) {
-  return paymentOccurrences(payment, periods, date, shiftDay(date, 1)).length === 1;
+export function isPaymentDueDate(payment: PaymentRule, sources: PaymentDateSources, date: Date) {
+  return paymentOccurrences(payment, sources, date, shiftDay(date, 1)).length === 1;
 }
 
-export function nextPaymentOccurrence(payment: PaymentRule, periods: BillingPeriod[], from: Date) {
-  return paymentOccurrences(payment, periods, from, shiftDay(from, NEXT_LOOKAHEAD_DAYS))[0] ?? null;
+export function nextPaymentOccurrence(payment: PaymentRule, sources: PaymentDateSources, from: Date) {
+  return paymentOccurrences(payment, sources, from, shiftDay(from, NEXT_LOOKAHEAD_DAYS))[0] ?? null;
 }

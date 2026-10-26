@@ -19,7 +19,7 @@ import {
   paymentOccurrences,
   periodsByMonth,
 } from "@/lib/schedule";
-import { loadBillingPeriods } from "./periods";
+import { loadDateSources } from "./periods";
 import type {
   PaymentMethod,
   ScheduledPaymentType,
@@ -27,6 +27,16 @@ import type {
 } from "@/generated/prisma/client";
 
 export type OccurrenceStatusView = "PENDING" | "OVERDUE" | "PAID" | "SKIPPED";
+
+export type LoanInstallmentDetail = {
+  number: number;
+  count: number;
+  principal: number;
+  interest: number;
+  insurance: number;
+  // Saldo de capital después de pagarla.
+  balance: number;
+};
 
 export type CalendarEntry = {
   key: string;
@@ -46,6 +56,8 @@ export type CalendarEntry = {
   statementAmount: number | null;
   // Solo tarjeta: ruleteos planificados para cubrir este vencimiento.
   roulette: { count: number; received: number; fees: number } | null;
+  // Solo préstamo: desglose de la cuota del cronograma.
+  installment: LoanInstallmentDetail | null;
   transactionId: string | null;
   accountId: string | null;
   paymentMethod: PaymentMethod | null;
@@ -81,10 +93,9 @@ function entryKey(scheduledPaymentId: string, dueDate: Date) {
 async function buildEntries(userId: string, payments: LoadedPayment[], start: Date, end: Date) {
   const today = todayInLima();
 
-  const cardIds = payments.filter((p) => p.type === "CREDIT_CARD").map((p) => p.id);
-  const periods = await loadBillingPeriods(cardIds, start, end);
+  const sources = await loadDateSources(payments, start, end);
   const dated = payments.flatMap((payment) =>
-    paymentOccurrences(payment, periods.get(payment.id) ?? [], start, end).map(({ dueDate, cycle }) => ({
+    paymentOccurrences(payment, sources(payment.id), start, end).map(({ dueDate, cycle }) => ({
       payment,
       dueDate,
       cycle,
@@ -96,14 +107,40 @@ async function buildEntries(userId: string, payments: LoadedPayment[], start: Da
     scheduledPaymentId: { in: [...new Set(dated.map((d) => d.payment.id))] },
     dueDate: { gte: start, lt: end },
   };
-  const [stored, statements, operations] = await Promise.all([
+  const loanIds = [...new Set(dated.filter((d) => d.payment.type === "LOAN").map((d) => d.payment.id))];
+  const [stored, statements, operations, installments, installmentCounts] = await Promise.all([
     prisma.scheduledOccurrence.findMany({ where: inRange }),
     prisma.cardStatement.findMany({ where: inRange }),
     prisma.rouletteOperation.findMany({
       where: inRange,
       select: { scheduledPaymentId: true, dueDate: true, charge: true, fee: true },
     }),
+    loanIds.length
+      ? prisma.loanInstallment.findMany({ where: { ...inRange, scheduledPaymentId: { in: loanIds } } })
+      : [],
+    loanIds.length
+      ? prisma.loanInstallment.groupBy({
+          by: ["scheduledPaymentId"],
+          where: { scheduledPaymentId: { in: loanIds } },
+          _count: { _all: true },
+        })
+      : [],
   ]);
+  const countByLoan = new Map(installmentCounts.map((c) => [c.scheduledPaymentId, c._count._all]));
+  const installmentByKey = new Map(
+    installments.map((i): [string, LoanInstallmentDetail & { total: number }] => [
+      entryKey(i.scheduledPaymentId, i.dueDate),
+      {
+        number: i.number,
+        count: countByLoan.get(i.scheduledPaymentId) ?? i.number,
+        principal: Number(i.principal),
+        interest: Number(i.interest),
+        insurance: Number(i.lifeInsurance) + Number(i.otherCharges),
+        balance: Number(i.balance),
+        total: Number(i.total),
+      },
+    ])
+  );
   const storedByKey = new Map(stored.map((o) => [entryKey(o.scheduledPaymentId, o.dueDate), o]));
   const statementByKey = new Map(statements.map((s) => [entryKey(s.scheduledPaymentId, s.dueDate), Number(s.amount)]));
   const operationsByKey = new Map<string, { charge: number; fee: number }[]>();
@@ -137,11 +174,12 @@ async function buildEntries(userId: string, payments: LoadedPayment[], start: Da
       const statementAmount = statementByKey.get(key) ?? null;
       const ops = operationsByKey.get(key);
       const totals = ops ? summarizeRoulette(ops) : null;
+      const loanInstallment = installmentByKey.get(key) ?? null;
       const estimated = cycle
         ? cardExpenses
             .filter((t) => t.date >= cycle.start && t.date < cycle.end)
             .reduce((sum, t) => sum + Number(t.amount), 0)
-        : Number(payment.amount ?? 0);
+        : (loanInstallment?.total ?? Number(payment.amount ?? 0));
 
       return {
         key: `${payment.id}:${toUTCDateInputValue(dueDate)}`,
@@ -156,6 +194,16 @@ async function buildEntries(userId: string, payments: LoadedPayment[], start: Da
         estimated,
         statementAmount,
         roulette: ops && totals ? { count: ops.length, received: totals.received, fees: totals.fees } : null,
+        installment: loanInstallment
+          ? {
+              number: loanInstallment.number,
+              count: loanInstallment.count,
+              principal: loanInstallment.principal,
+              interest: loanInstallment.interest,
+              insurance: loanInstallment.insurance,
+              balance: loanInstallment.balance,
+            }
+          : null,
         transactionId: occurrence?.transactionId ?? null,
         accountId: payment.accountId,
         paymentMethod: payment.paymentMethod,
@@ -180,6 +228,16 @@ export async function getCalendarEntry(scheduledPaymentId: string, dueDateValue:
   // Solo devuelve algo si `dueDate` es un vencimiento real del pago.
   const [entry] = await buildEntries(userId, [payment], dueDate, shiftDay(dueDate, 1));
   return entry ?? null;
+}
+
+// Vencimientos de un pago en [start, end), con su estado (para la página de un préstamo).
+export async function getPaymentEntries(scheduledPaymentId: string, start: Date, end: Date) {
+  const userId = await requireUserId();
+  const payment = await prisma.scheduledPayment.findFirst({
+    where: { id: scheduledPaymentId, userId },
+    include: PAYMENT_INCLUDE,
+  });
+  return payment ? buildEntries(userId, [payment], start, end) : [];
 }
 
 export async function getCalendarMonth(year: number, month: number) {
@@ -237,11 +295,10 @@ export async function getScheduledPayments(): Promise<ScheduledPaymentRow[]> {
     orderBy: [{ active: "desc" }, { createdAt: "asc" }],
   });
 
-  const cardIds = payments.filter((p) => p.type === "CREDIT_CARD").map((p) => p.id);
-  const periods = await loadBillingPeriods(cardIds, today, shiftDay(today, NEXT_LOOKAHEAD_DAYS));
+  const sources = await loadDateSources(payments, today, shiftDay(today, NEXT_LOOKAHEAD_DAYS));
 
   return payments.map((p) => {
-    const next = p.active ? nextPaymentOccurrence(p, periods.get(p.id) ?? [], today) : null;
+    const next = p.active ? nextPaymentOccurrence(p, sources(p.id), today) : null;
     return {
       id: p.id,
       type: p.type,

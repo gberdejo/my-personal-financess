@@ -74,7 +74,8 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
             <CardTitle>Sin pagos programados todavía</CardTitle>
             <CardDescription>
               Agregá tus servicios (luz, agua, internet), gastos fijos y tarjetas de crédito con su fecha de pago.
-              El calendario te muestra qué vence cada mes y, al pagarlos, se registran como gastos.
+              El calendario te muestra qué vence cada mes y, al pagarlos, se registran como gastos. Los préstamos se
+              cargan desde Préstamos y sus cuotas aparecen acá.
             </CardDescription>
           </CardHeader>
         </Card>
