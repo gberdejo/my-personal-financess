@@ -47,7 +47,8 @@ export async function loadDateSources(payments: { id: string; type: ScheduledPay
     loadBillingPeriods(cardIds, start, end),
     loanIds.length
       ? prisma.loanInstallment.findMany({
-          where: { scheduledPaymentId: { in: loanIds }, dueDate: { gte: start, lt: end } },
+          // Las cuotas en 0 (periodo de gracia) no se pagan: no son vencimientos.
+          where: { scheduledPaymentId: { in: loanIds }, dueDate: { gte: start, lt: end }, total: { gt: 0 } },
           select: { scheduledPaymentId: true, dueDate: true },
         })
       : [],

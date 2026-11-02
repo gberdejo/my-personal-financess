@@ -244,8 +244,13 @@ export function parseLoanCsv(text: string): ParsedLoanCsv {
 
     const dueDate = parseDate(dateCell);
     const numberCell = value("number")[0];
-    const number = numberCell ? Number(numberCell) : rows.length + 1;
     const total = amount("total");
+    // Sin columna "cuota": en orden, y una primera cuota en 0 es la 0.
+    const number = numberCell
+      ? Number(numberCell)
+      : rows.length === 0 && total === 0
+        ? 0
+        : (rows.at(-1)?.number ?? 0) + 1;
     const parts = {
       principal: amount("principal"),
       interest: amount("interest"),
@@ -305,6 +310,9 @@ export function parseLoanCsv(text: string): ParsedLoanCsv {
   }
 
   if (rows.length === 0 && errors.length === 0) errors.push({ line: null, message: "No hay cuotas en el archivo." });
+  if (rows.length > 0 && !rows.some((row) => row.total > 0)) {
+    errors.push({ line: null, message: "No hay ninguna cuota con monto a pagar." });
+  }
   if (rows.length > MAX_IMPORTED_INSTALLMENTS) {
     errors.push({ line: null, message: `Son ${rows.length} cuotas; el máximo es ${MAX_IMPORTED_INSTALLMENTS}.` });
   }
@@ -360,11 +368,13 @@ export function summarizeImport(rows: ImportedInstallment[]) {
   const first = rows[0];
   // Monto prestado: el saldo antes de la primera cuota, o lo que suma el capital.
   const principal = first?.balance != null ? round2(first.balance + first.principal) : sum((r) => r.principal);
+  const payable = rows.filter((r) => r.total > 0);
   return {
-    count: rows.length,
+    // Cuotas a pagar (sin la cuota 0 del periodo de gracia).
+    count: payable.length,
     firstDate: first?.dueDate ?? null,
     lastDate: rows.at(-1)?.dueDate ?? null,
-    installment: mostFrequent(rows.map((r) => r.total)),
+    installment: mostFrequent(payable.map((r) => r.total)),
     total: sum((r) => r.total),
     interest: sum((r) => r.interest),
     insurance: sum((r) => r.lifeInsurance + r.otherCharges),

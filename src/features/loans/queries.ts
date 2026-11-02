@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/auth";
 import { shiftDay, todayInLima } from "@/lib/date";
 import { getPaymentEntries, type CalendarEntry, type OccurrenceStatusView } from "@/features/schedule/queries";
-import type { LoanDateShift, PrepaymentMode } from "@/lib/loan";
+import { isPayableInstallment, type LoanDateShift, type PrepaymentMode } from "@/lib/loan";
 import type { PaymentMethod, Prisma } from "@/generated/prisma/client";
 
 const LOAN_INCLUDE = {
@@ -26,6 +26,8 @@ export type LoanInstallmentRow = {
   otherCharges: number;
   total: number;
   balance: number;
+  // false = cuota en 0 (periodo de gracia): no se paga ni sale en el calendario.
+  payable: boolean;
   status: OccurrenceStatusView;
   // Lo pagado de verdad (puede diferir de la cuota).
   paidAmount: number | null;
@@ -109,6 +111,7 @@ function buildRows(payment: LoadedLoan, today: Date): LoanInstallmentRow[] {
       otherCharges: Number(i.otherCharges),
       total: Number(i.total),
       balance: Number(i.balance),
+      payable: isPayableInstallment({ total: Number(i.total) }),
       status: occurrence?.status ?? (i.dueDate < today ? "OVERDUE" : "PENDING"),
       paidAmount: occurrence?.status === "PAID" ? Number(occurrence.amount ?? i.total) : null,
     };
@@ -122,9 +125,10 @@ function prepaymentTotal(prepayments: LoanPrepaymentRow[]) {
 function summarize(payment: LoadedLoan, rows: LoanInstallmentRow[], prepayments: LoanPrepaymentRow[]): LoanSummary {
   const loan = payment.loan;
   const principal = Number(loan?.principal ?? 0);
-  const paid = rows.filter((r) => r.status === "PAID");
+  const payable = rows.filter((r) => r.payable);
+  const paid = payable.filter((r) => r.status === "PAID");
   // Pendientes y vencidas; las omitidas no se cuentan como deuda por pagar.
-  const open = rows.filter((r) => r.status === "PENDING" || r.status === "OVERDUE");
+  const open = payable.filter((r) => r.status === "PENDING" || r.status === "OVERDUE");
   const lastPaid = paid.reduce<LoanInstallmentRow | null>((last, r) => (!last || r.number > last.number ? r : last), null);
   const next = open[0];
 
@@ -135,7 +139,7 @@ function summarize(payment: LoadedLoan, rows: LoanInstallmentRow[], prepayments:
     active: payment.active,
     principal,
     tea: Number(loan?.tea ?? 0),
-    installmentCount: rows.length,
+    installmentCount: payable.length,
     paidCount: paid.length,
     // Lo que sale de la cuenta: cuotas y prepagos.
     totalToPay: round2(rows.reduce((sum, r) => sum + r.total, 0) + prepaymentTotal(prepayments)),

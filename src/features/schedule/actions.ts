@@ -346,7 +346,7 @@ async function installmentDescription(scheduledPaymentId: string, dueDate: Date)
     prisma.loanInstallment.findUnique({
       where: { scheduledPaymentId_dueDate: { scheduledPaymentId, dueDate } },
     }),
-    prisma.loanInstallment.count({ where: { scheduledPaymentId } }),
+    prisma.loanInstallment.count({ where: { scheduledPaymentId, number: { gt: 0 } } }),
   ]);
   if (!installment) return null;
   const insurance = Number(installment.lifeInsurance) + Number(installment.otherCharges);

@@ -160,6 +160,20 @@ export function overpaidInstallment(rows: GeneratedInstallment[]) {
   return row ? row.number : null;
 }
 
+// Una cuota en 0 (periodo de gracia o primera fecha más lejana) no se paga: su
+// interés se suma al capital. No sale en el calendario.
+export function isPayableInstallment(installment: { total: number }) {
+  return installment.total > 0;
+}
+
+// Número de cada cuota, en orden de fecha. Las cuotas en 0 del inicio llevan 0
+// (o menos) para que la primera que se paga sea la 1, como en los bancos.
+export function installmentNumbers(rows: { total: number }[]) {
+  const firstPayable = rows.findIndex(isPayableInstallment);
+  const offset = Math.max(0, firstPayable);
+  return rows.map((_, i) => i + 1 - offset);
+}
+
 // ---------- Prepagos ----------
 
 // TERM = reducir el plazo (la cuota sigue igual y se termina antes).

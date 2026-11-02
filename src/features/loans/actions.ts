@@ -10,6 +10,8 @@ import { isPaymentMethod, PREPAYMENT_MODE_LABELS } from "@/lib/labels";
 import {
   extendDueDates,
   generateLoanSchedule,
+  installmentNumbers,
+  isPayableInstallment,
   LOAN_DATE_SHIFTS,
   overpaidInstallment,
   PREPAYMENT_MODES,
@@ -163,10 +165,10 @@ function scheduleColumns(schedule: GeneratedInstallment[], params: LoanParams) {
   };
 }
 
-// Fechas y cuota de referencia del pago programado, según sus cuotas.
+// Fechas y cuota de referencia del pago programado, según sus cuotas a pagar.
 async function syncPaymentDates(tx: Prisma.TransactionClient, scheduledPaymentId: string) {
   const installments = await tx.loanInstallment.findMany({
-    where: { scheduledPaymentId },
+    where: { scheduledPaymentId, total: { gt: 0 } },
     orderBy: { dueDate: "asc" },
     select: { dueDate: true, total: true },
   });
@@ -186,6 +188,15 @@ async function syncPaymentDates(tx: Prisma.TransactionClient, scheduledPaymentId
 // una por una necesitan más que los 5 s por defecto de Prisma.
 const LONG_TRANSACTION = { timeout: 60_000, maxWait: 10_000 };
 
+// Números provisorios al renumerar: lejos de los reales (que pueden ser 0 o
+// negativos en las cuotas en 0 del inicio) para no chocar con la unicidad de
+// (préstamo, número). Las cuotas recién importadas usan el doble.
+const RENUMBER_OFFSET = 1_000_000;
+
+function temporaryNumber(number: number) {
+  return -(RENUMBER_OFFSET + number);
+}
+
 // Tras editar cuotas a mano: numera por fecha y recalcula el saldo de capital.
 // Solo escribe las cuotas que cambian.
 async function renumberAndRebalance(tx: Prisma.TransactionClient, scheduledPaymentId: string) {
@@ -193,22 +204,21 @@ async function renumberAndRebalance(tx: Prisma.TransactionClient, scheduledPayme
   const installments = await tx.loanInstallment.findMany({
     where: { scheduledPaymentId },
     orderBy: { dueDate: "asc" },
-    select: { id: true, number: true, principal: true, balance: true },
+    select: { id: true, number: true, principal: true, total: true, balance: true },
   });
+  const numbers = installmentNumbers(installments.map((row) => ({ total: Number(row.total) })));
 
   let balance = Number(loan.principal);
   const changes = installments.flatMap((installment, i) => {
     balance = round2(balance - Number(installment.principal));
-    const number = i + 1;
+    const number = numbers[i];
     return installment.number !== number || Number(installment.balance) !== balance
       ? [{ id: installment.id, number, balance, renumber: installment.number !== number }]
       : [];
   });
 
-  // Los que cambian de número pasan primero por un número negativo para no
-  // chocar con la unicidad de (préstamo, número).
   for (const change of changes.filter((c) => c.renumber)) {
-    await tx.loanInstallment.update({ where: { id: change.id }, data: { number: -change.number } });
+    await tx.loanInstallment.update({ where: { id: change.id }, data: { number: temporaryNumber(change.number) } });
   }
   for (const change of changes) {
     await tx.loanInstallment.update({
@@ -796,6 +806,8 @@ export async function importLoan(_prevState: LoanActionState, formData: FormData
   const principal = principalInput || summary.principal || summary.total;
   const estimated = estimateRates(rows, 360);
   const balances = fallbackBalances(rows, principal);
+  const numbers = installmentNumbers(rows);
+  const payable = rows.filter(isPayableInstallment);
   const { lender, ...paymentInfo } = info.info;
 
   const payment = await prisma.scheduledPayment.create({
@@ -804,8 +816,8 @@ export async function importLoan(_prevState: LoanActionState, formData: FormData
       type: "LOAN",
       ...paymentInfo,
       frequency: "MONTHLY",
-      startDate: rows[0].dueDate,
-      endDate: rows.at(-1)!.dueDate,
+      startDate: payable[0].dueDate,
+      endDate: payable.at(-1)!.dueDate,
       amount: summary.installment,
       loan: {
         create: {
@@ -823,7 +835,9 @@ export async function importLoan(_prevState: LoanActionState, formData: FormData
           baseInstallment: summary.installment,
         },
       },
-      installments: { create: rows.map((row, i) => installmentData(row, balances[i])) },
+      installments: {
+        create: rows.map((row, i) => ({ ...installmentData(row, balances[i]), number: numbers[i] })),
+      },
     },
   });
 
@@ -831,23 +845,19 @@ export async function importLoan(_prevState: LoanActionState, formData: FormData
   redirect(`/dashboard/prestamos/${payment.id}`);
 }
 
-// Los números provisorios de las cuotas recién creadas son -1, -2, …; al
-// renumerar se pasa por este otro rango para no chocar con ellos.
-const RENUMBER_OFFSET = 1_000_000;
-
 // Numera por fecha sin tocar los saldos (los del banco no se recalculan).
 async function renumberByDate(tx: Prisma.TransactionClient, scheduledPaymentId: string) {
   const installments = await tx.loanInstallment.findMany({
     where: { scheduledPaymentId },
     orderBy: { dueDate: "asc" },
-    select: { id: true, number: true },
+    select: { id: true, number: true, total: true },
   });
-  const changes = installments.flatMap((row, i) => (row.number !== i + 1 ? [{ id: row.id, number: i + 1 }] : []));
+  const numbers = installmentNumbers(installments.map((row) => ({ total: Number(row.total) })));
+  const changes = installments.flatMap((row, i) =>
+    row.number !== numbers[i] ? [{ id: row.id, number: numbers[i] }] : []
+  );
   for (const change of changes) {
-    await tx.loanInstallment.update({
-      where: { id: change.id },
-      data: { number: -(RENUMBER_OFFSET + change.number) },
-    });
+    await tx.loanInstallment.update({ where: { id: change.id }, data: { number: temporaryNumber(change.number) } });
   }
   for (const change of changes) {
     await tx.loanInstallment.update({ where: { id: change.id }, data: { number: change.number } });
@@ -889,12 +899,12 @@ export async function importLoanSchedule(
       await tx.loanInstallment.deleteMany({
         where: { scheduledPaymentId: payment.id, dueDate: { notIn: keptPaid.map((row) => row.dueDate) } },
       });
-      // Números provisorios negativos para no chocar con los de las pagadas.
+      // Números provisorios para no chocar con los de las pagadas.
       await tx.loanInstallment.createMany({
         data: rows.map((row, i) => ({
           scheduledPaymentId: payment.id,
           ...installmentData(row, balanceByTime.get(row.dueDate.getTime()) ?? 0),
-          number: -(i + 1),
+          number: -(2 * RENUMBER_OFFSET + i),
         })),
       });
       await renumberByDate(tx, payment.id);

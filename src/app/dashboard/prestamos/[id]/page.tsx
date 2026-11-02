@@ -249,7 +249,11 @@ function InstallmentRow({
     <li className="grid grid-cols-[2rem_1fr_auto] items-center gap-x-3 gap-y-1 border-t px-4 py-2 text-sm md:grid-cols-[2rem_6.5rem_1fr_1fr_1fr_1fr_1fr_8.5rem]">
       <span className="text-xs text-muted-foreground tabular-nums">{row.number}</span>
       <div className="flex items-center gap-2">
-        <OccurrenceStatusMark status={row.status} className="size-4" />
+        {row.payable ? (
+          <OccurrenceStatusMark status={row.status} className="size-4" />
+        ) : (
+          <span className="size-4 shrink-0 rounded-full border border-dashed border-muted-foreground/50" />
+        )}
         <span className="tabular-nums">{formatDate(row.dueDate)}</span>
       </div>
       <span className={cn("hidden text-right tabular-nums md:block", row.principal < 0 && "text-destructive")}>
@@ -257,8 +261,13 @@ function InstallmentRow({
       </span>
       <span className="hidden text-right text-muted-foreground tabular-nums md:block">{formatCurrency(row.interest)}</span>
       <span className="hidden text-right text-muted-foreground tabular-nums md:block">{formatCurrency(insurance)}</span>
-      <span className={cn("text-right font-semibold", occurrenceAmountClass(row.status))}>
-        {formatCurrency(row.paidAmount ?? row.total)}
+      <span
+        className={cn(
+          "text-right font-semibold",
+          row.payable ? occurrenceAmountClass(row.status) : "text-muted-foreground tabular-nums"
+        )}
+      >
+        {row.payable ? formatCurrency(row.paidAmount ?? row.total) : "Sin pago"}
       </span>
       <span className="hidden text-right text-muted-foreground tabular-nums md:block">{formatCurrency(row.balance)}</span>
 

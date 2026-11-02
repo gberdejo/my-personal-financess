@@ -121,7 +121,8 @@ async function buildEntries(userId: string, payments: LoadedPayment[], start: Da
     loanIds.length
       ? prisma.loanInstallment.groupBy({
           by: ["scheduledPaymentId"],
-          where: { scheduledPaymentId: { in: loanIds } },
+          // "Cuota 5/18": sin contar la cuota 0 del periodo de gracia.
+          where: { scheduledPaymentId: { in: loanIds }, number: { gt: 0 } },
           _count: { _all: true },
         })
       : [],
