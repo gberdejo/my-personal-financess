@@ -7,6 +7,7 @@ import { ScheduledPaymentFormDialog } from "@/components/finance/scheduled-payme
 import { ScheduledPaymentsList } from "@/components/finance/scheduled-payments-list";
 import { getAccounts } from "@/features/accounts/queries";
 import { getCategories } from "@/features/categories/queries";
+import { getPrepaymentsForRange } from "@/features/loans/queries";
 import { getRouletteOpsForRange } from "@/features/roulette/queries";
 import {
   getCalendarMonth,
@@ -42,17 +43,22 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
   const { year, month } = parseMonthParam(monthParam);
   const range = monthRange(year, month);
 
-  const [entries, operations, { overdue, upcoming }, payments, suggestions, accounts, categories] = await Promise.all([
-    getCalendarMonth(year, month),
-    getRouletteOpsForRange(range.start, range.end),
-    getUpcomingAndOverdue(),
-    getScheduledPayments(),
-    getScheduleSuggestions(),
-    getAccounts(),
-    getCategories("EXPENSE"),
-  ]);
+  const [entries, operations, prepayments, { overdue, upcoming }, payments, suggestions, accounts, categories] =
+    await Promise.all([
+      getCalendarMonth(year, month),
+      getRouletteOpsForRange(range.start, range.end),
+      getPrepaymentsForRange(range.start, range.end),
+      getUpcomingAndOverdue(),
+      getScheduledPayments(),
+      getScheduleSuggestions(),
+      getAccounts(),
+      getCategories("EXPENSE"),
+    ]);
 
   const pendingInMonth = entries.filter((e) => e.status === "PENDING" || e.status === "OVERDUE");
+  // Los prepagos planificados del mes también son plata que va a salir.
+  const pendingPrepayments = prepayments.filter((p) => p.status !== "DONE");
+  const pendingPrepaymentsTotal = pendingPrepayments.reduce((sum, p) => sum + p.amount, 0);
   const attention = [...overdue, ...upcoming];
   const hasCard = payments.some((p) => p.type === "CREDIT_CARD");
   const rouletteFees = summarizeRoulette(operations).fees;
@@ -86,10 +92,10 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
               <CardHeader>
                 <CardDescription>Por pagar en {monthLabel(year, month).toLowerCase()}</CardDescription>
                 <CardTitle className="font-sans text-2xl not-italic font-semibold tabular-nums">
-                  {formatCurrency(total(pendingInMonth))}
+                  {formatCurrency(total(pendingInMonth) + pendingPrepaymentsTotal)}
                 </CardTitle>
                 <p className="text-xs text-muted-foreground">
-                  {countLabel(pendingInMonth.length, "pago pendiente", "pagos pendientes")}
+                  {countLabel(pendingInMonth.length + pendingPrepayments.length, "pago pendiente", "pagos pendientes")}
                 </p>
               </CardHeader>
             </Card>
@@ -141,6 +147,7 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
             month={month}
             entries={entries}
             operations={operations}
+            prepayments={prepayments}
             accounts={accounts}
           />
 

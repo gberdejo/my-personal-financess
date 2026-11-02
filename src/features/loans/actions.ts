@@ -5,15 +5,28 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/auth";
 import { parseDateOnly } from "@/lib/date";
-import { isPaymentMethod } from "@/lib/labels";
+import { formatCurrency, formatDate } from "@/lib/format";
+import { isPaymentMethod, PREPAYMENT_MODE_LABELS } from "@/lib/labels";
 import {
+  extendDueDates,
   generateLoanSchedule,
   LOAN_DATE_SHIFTS,
   overpaidInstallment,
-  recalculateFollowing,
+  PREPAYMENT_MODES,
+  rebuildSchedule,
+  type GeneratedInstallment,
   type LoanDateShift,
   type LoanParams,
+  type PrepaymentMode,
+  type RebuildError,
 } from "@/lib/loan";
+import {
+  defaultDisbursement,
+  estimateRates,
+  parseLoanCsv,
+  summarizeImport,
+  type ImportedInstallment,
+} from "@/lib/loan-csv";
 import { moveDueDate } from "@/features/schedule/periods";
 import type { Loan, PaymentMethod, Prisma } from "@/generated/prisma/client";
 
@@ -142,6 +155,14 @@ function loanColumns(params: LoanParams) {
   };
 }
 
+// Plazo y cuota base del cronograma recién generado.
+function scheduleColumns(schedule: GeneratedInstallment[], params: LoanParams) {
+  return {
+    installments: schedule.length,
+    baseInstallment: params.fixedInstallment ?? (schedule[1] ?? schedule[0]).total,
+  };
+}
+
 // Fechas y cuota de referencia del pago programado, según sus cuotas.
 async function syncPaymentDates(tx: Prisma.TransactionClient, scheduledPaymentId: string) {
   const installments = await tx.loanInstallment.findMany({
@@ -214,39 +235,105 @@ function storedParams(loan: Loan): LoanParams {
   };
 }
 
-// Rehace las cuotas posteriores a `installmentId` con la tasa del préstamo,
-// partiendo del saldo que dejó esa cuota. No toca cuotas ya pagadas.
-async function recalculateAfter(tx: Prisma.TransactionClient, loan: Loan, installmentId: string) {
+function rebuildErrorMessage(error: RebuildError) {
+  return error.kind === "exceeds"
+    ? `El prepago del ${formatDate(error.date)} es mayor que el saldo de capital a esa fecha (${formatCurrency(error.balance)}).`
+    : `El prepago del ${formatDate(error.date)} queda después de la última cuota: el préstamo ya terminó.`;
+}
+
+// Día del mes de las cuotas: el más repetido (algunas se corren al lunes).
+function usualDueDay(dates: Date[]) {
+  const counts = new Map<number, number>();
+  for (const date of dates) counts.set(date.getUTCDate(), (counts.get(date.getUTCDate()) ?? 0) + 1);
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 1;
+}
+
+// Rehace las cuotas que siguen a las primeras `keep` (por fecha) con la tasa y
+// los seguros del préstamo, partiendo del saldo de la última conservada y
+// aplicando los prepagos desde esa fecha. Si un prepago a plazo había quitado
+// cuotas y ya no corresponde, vuelven hasta completar el plazo. No toca cuotas
+// pagadas: si hay alguna después, falla.
+async function rebuildAfter(tx: Prisma.TransactionClient, loan: Loan, keep: number) {
   const { scheduledPaymentId } = loan;
   const rows = await tx.loanInstallment.findMany({ where: { scheduledPaymentId }, orderBy: { dueDate: "asc" } });
-  const index = rows.findIndex((row) => row.id === installmentId);
-  const following = rows.slice(index + 1);
-  if (index < 0 || following.length === 0) return;
+  const kept = rows.slice(0, Math.max(0, keep));
+  const following = rows.slice(kept.length);
+  const last = kept.at(-1);
 
   const paid = await tx.scheduledOccurrence.count({
     where: { scheduledPaymentId, status: "PAID", dueDate: { in: following.map((row) => row.dueDate) } },
   });
-  if (paid > 0) throw new Error("Hay cuotas pagadas después de esta: no se pueden recalcular las siguientes.");
+  if (paid > 0) throw new Error("Hay cuotas pagadas después de esa fecha: no se pueden recalcular las siguientes.");
 
-  const params = storedParams(loan);
-  const edited = rows[index];
-  const recalculated = recalculateFollowing(
-    params,
-    { number: edited.number, dueDate: edited.dueDate, balance: Number(edited.balance) },
-    following.map((row) => row.dueDate),
-    params.fixedInstallment ?? Number(following[0].total)
-  );
-  const overpaid = overpaidInstallment(recalculated);
+  const prepayments = await tx.loanPrepayment.findMany({
+    where: { scheduledPaymentId },
+    select: { date: true, amount: true, mode: true },
+  });
+  const events = prepayments.map((p) => ({ date: p.date, amount: Number(p.amount), mode: p.mode as PrepaymentMode }));
+
+  const plazo = Math.max(loan.installments, rows.length);
+  const lastDate = rows.at(-1)?.dueDate ?? loan.disbursementDate;
+  const dueDates = [
+    ...following.map((row) => row.dueDate),
+    ...extendDueDates(lastDate, usualDueDay(rows.map((r) => r.dueDate)), plazo - rows.length, loan.dateShift as LoanDateShift),
+  ];
+  if (dueDates.length === 0) return;
+
+  // Cuota vigente: la de la última cuota conservada si antes hubo un prepago a
+  // cuota (que la cambió); si no, la cuota base del cronograma.
+  const reducedBefore = last && events.some((e) => e.mode === "INSTALLMENT" && e.date <= last.dueDate);
+  const installment =
+    reducedBefore && last
+      ? Number(last.total)
+      : Number(loan.baseInstallment ?? loan.fixedInstallment ?? following[0]?.total ?? 0);
+
+  const start = last
+    ? { balance: Number(last.balance), date: last.dueDate, number: last.number + 1 }
+    : { balance: Number(loan.principal), date: loan.disbursementDate, number: 1 };
+  const result = rebuildSchedule(storedParams(loan), start, dueDates, installment, events);
+  if ("error" in result) throw new Error(rebuildErrorMessage(result.error));
+  const overpaid = overpaidInstallment(result.rows);
   if (overpaid) throw new Error(`Al recalcular, en la cuota ${overpaid} el saldo queda negativo. Revisá los montos.`);
 
-  for (const [i, row] of recalculated.entries()) {
-    const { principal, interest, lifeInsurance, otherCharges, total, balance } = row;
-    await tx.loanInstallment.update({
-      where: { id: following[i].id },
-      data: { principal, interest, lifeInsurance, otherCharges, total, balance },
-    });
+  // Mismas fechas: se actualizan solo las que cambian. Sobran (prepago a plazo):
+  // se borran. Faltan (se quitó un prepago a plazo): se crean.
+  for (const [i, row] of result.rows.entries()) {
+    const { number, dueDate, principal, interest, lifeInsurance, otherCharges, total, balance } = row;
+    const current = following[i];
+    if (!current) {
+      await tx.loanInstallment.create({
+        data: { scheduledPaymentId, number, dueDate, principal, interest, lifeInsurance, otherCharges, total, balance },
+      });
+      continue;
+    }
+    const unchanged =
+      current.number === number &&
+      Number(current.principal) === principal &&
+      Number(current.interest) === interest &&
+      Number(current.lifeInsurance) === lifeInsurance &&
+      Number(current.otherCharges) === otherCharges &&
+      Number(current.total) === total &&
+      Number(current.balance) === balance;
+    if (!unchanged) {
+      await tx.loanInstallment.update({
+        where: { id: current.id },
+        data: { number, principal, interest, lifeInsurance, otherCharges, total, balance },
+      });
+    }
+  }
+  const leftover = following.slice(result.rows.length);
+  if (leftover.length > 0) {
+    const dates = leftover.map((row) => row.dueDate);
+    await tx.scheduledOccurrence.deleteMany({ where: { scheduledPaymentId, dueDate: { in: dates } } });
+    await tx.loanInstallment.deleteMany({ where: { id: { in: leftover.map((row) => row.id) } } });
   }
   await syncPaymentDates(tx, scheduledPaymentId);
+}
+
+// Cuántas cuotas (por fecha) quedan antes de `date`, contando la de ese mismo
+// día: un prepago el día de una cuota se aplica después de pagarla.
+async function installmentsUpTo(tx: Prisma.TransactionClient, scheduledPaymentId: string, date: Date) {
+  return tx.loanInstallment.count({ where: { scheduledPaymentId, dueDate: { lte: date } } });
 }
 
 async function findOwnLoan(userId: string, scheduledPaymentId: string) {
@@ -281,7 +368,7 @@ export async function createLoan(_prevState: LoanActionState, formData: FormData
       startDate: schedule[0].dueDate,
       endDate: schedule.at(-1)!.dueDate,
       amount: (schedule[1] ?? schedule[0]).total,
-      loan: { create: { lender, ...loanColumns(params) } },
+      loan: { create: { lender, ...loanColumns(params), ...scheduleColumns(schedule, params) } },
       installments: { create: schedule },
     },
   });
@@ -339,14 +426,28 @@ export async function regenerateLoanSchedule(
   const scheduleError = overpaidError(schedule);
   if (scheduleError) return { error: scheduleError };
 
-  await prisma.$transaction(async (tx) => {
-    await tx.loanInstallment.deleteMany({ where: { scheduledPaymentId: payment.id } });
-    await tx.loanInstallment.createMany({
-      data: schedule.map((row) => ({ scheduledPaymentId: payment.id, ...row })),
-    });
-    await tx.loan.update({ where: { scheduledPaymentId: payment.id }, data: loanColumns(result.params) });
-    await syncPaymentDates(tx, payment.id);
-  });
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.loanInstallment.deleteMany({ where: { scheduledPaymentId: payment.id } });
+      await tx.loanInstallment.createMany({
+        data: schedule.map((row) => ({ scheduledPaymentId: payment.id, ...row })),
+      });
+      const loan = await tx.loan.update({
+        where: { scheduledPaymentId: payment.id },
+        data: { ...loanColumns(result.params), ...scheduleColumns(schedule, result.params) },
+      });
+      await syncPaymentDates(tx, payment.id);
+      // Los prepagos se vuelven a aplicar sobre el cronograma nuevo.
+      const first = await tx.loanPrepayment.findFirst({
+        where: { scheduledPaymentId: payment.id },
+        orderBy: { date: "asc" },
+      });
+      if (first) await rebuildAfter(tx, loan, await installmentsUpTo(tx, payment.id, first.date));
+    }, LONG_TRANSACTION);
+  } catch (error) {
+    if (error instanceof Error && !("code" in error)) return { error: error.message };
+    throw error;
+  }
 
   revalidateLoans();
   return null;
@@ -427,9 +528,15 @@ export async function saveLoanInstallment(
         await tx.loanInstallment.create({
           data: { scheduledPaymentId: payment.id, number: (last._max.number ?? 0) + 1, balance: 0, ...data },
         });
+        // Una cuota agregada a mano alarga el plazo.
+        const count = await tx.loanInstallment.count({ where: { scheduledPaymentId: payment.id } });
+        await tx.loan.update({ where: { scheduledPaymentId: payment.id }, data: { installments: Math.max(count, loan.installments) } });
       }
       await renumberAndRebalance(tx, payment.id);
-      if (installmentId && recalculate) await recalculateAfter(tx, loan, installmentId);
+      if (installmentId && recalculate) {
+        const edited = await tx.loanInstallment.findUniqueOrThrow({ where: { id: installmentId } });
+        await rebuildAfter(tx, loan, await installmentsUpTo(tx, payment.id, edited.dueDate));
+      }
     }, LONG_TRANSACTION);
   } catch (error) {
     if (isUniqueViolation(error)) return { error: "Ya hay otra cuota con esa fecha." };
@@ -462,8 +569,362 @@ export async function deleteLoanInstallment(scheduledPaymentId: string, installm
       where: { scheduledPaymentId: payment.id, dueDate: installment.dueDate },
     });
     await tx.loanInstallment.delete({ where: { id: installment.id } });
+    // Quitar una cuota a mano acorta el plazo.
+    await tx.loan.update({
+      where: { scheduledPaymentId: payment.id },
+      data: { installments: await tx.loanInstallment.count({ where: { scheduledPaymentId: payment.id } }) },
+    });
     await renumberAndRebalance(tx, payment.id);
   }, LONG_TRANSACTION);
 
   revalidateLoans();
+}
+
+// ---------- Prepagos ----------
+
+function revalidateWithTransactions() {
+  revalidateLoans();
+  revalidatePath("/dashboard/transacciones");
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/cuentas");
+}
+
+async function findOwnPrepayment(userId: string, prepaymentId: string) {
+  return prisma.loanPrepayment.findFirst({
+    where: { id: prepaymentId, scheduledPayment: { userId, type: "LOAN" } },
+    include: { scheduledPayment: { include: { loan: true } } },
+  });
+}
+
+// Alta (prepaymentId null) o edición de un prepago, planificado o hecho. Las
+// cuotas siguientes se recalculan desde la fecha más temprana afectada.
+export async function savePrepayment(
+  scheduledPaymentId: string,
+  prepaymentId: string | null,
+  _prevState: LoanActionState,
+  formData: FormData
+): Promise<LoanActionState> {
+  const userId = await requireUserId();
+
+  const payment = await findOwnLoan(userId, scheduledPaymentId);
+  if (!payment?.loan) return { error: "Préstamo inválido." };
+  const loan = payment.loan;
+
+  const date = parseDateOnly(readText(formData, "date"));
+  const amount = readNumber(formData, "amount");
+  const modeRaw = readText(formData, "mode");
+  const note = readText(formData, "note") || null;
+
+  if (!date) return { error: "La fecha no es válida." };
+  if (date <= loan.disbursementDate) return { error: "El prepago tiene que ser después del desembolso." };
+  if (!amount || amount <= 0) return { error: "El monto debe ser mayor a 0." };
+  if (!(PREPAYMENT_MODES as string[]).includes(modeRaw)) return { error: "Elegí si reduce el plazo o la cuota." };
+  const mode = modeRaw as PrepaymentMode;
+
+  let previousDate: Date | null = null;
+  if (prepaymentId) {
+    const current = await prisma.loanPrepayment.findFirst({
+      where: { id: prepaymentId, scheduledPaymentId: payment.id },
+    });
+    if (!current) return { error: "Prepago inválido." };
+    // Ya tiene su gasto: cambiar el monto lo desalinearía.
+    if (current.transactionId) return { error: "Deshacé el registro del prepago antes de editarlo." };
+    previousDate = current.date;
+  }
+
+  const from = previousDate && previousDate < date ? previousDate : date;
+  try {
+    await prisma.$transaction(async (tx) => {
+      const data = { date, amount: round2(amount), mode, note };
+      if (prepaymentId) await tx.loanPrepayment.update({ where: { id: prepaymentId }, data });
+      else await tx.loanPrepayment.create({ data: { scheduledPaymentId: payment.id, ...data } });
+      await rebuildAfter(tx, loan, await installmentsUpTo(tx, payment.id, from));
+    }, LONG_TRANSACTION);
+  } catch (error) {
+    if (error instanceof Error && !("code" in error)) return { error: error.message };
+    throw error;
+  }
+
+  revalidateLoans();
+  return null;
+}
+
+// Si estaba registrado, también se borra su gasto. Las cuotas se recalculan sin él.
+export async function deletePrepayment(prepaymentId: string): Promise<LoanActionState> {
+  const userId = await requireUserId();
+
+  const prepayment = await findOwnPrepayment(userId, prepaymentId);
+  const loan = prepayment?.scheduledPayment.loan;
+  if (!prepayment || !loan) return { error: "Prepago inválido." };
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.loanPrepayment.delete({ where: { id: prepayment.id } });
+      if (prepayment.transactionId) {
+        await tx.transaction.deleteMany({ where: { id: prepayment.transactionId, userId } });
+      }
+      await rebuildAfter(tx, loan, await installmentsUpTo(tx, loan.scheduledPaymentId, prepayment.date));
+    }, LONG_TRANSACTION);
+  } catch (error) {
+    if (error instanceof Error && !("code" in error)) return { error: error.message };
+    throw error;
+  }
+
+  if (prepayment.transactionId) revalidateWithTransactions();
+  else revalidateLoans();
+  return null;
+}
+
+// Registra el gasto del prepago (las cuotas ya lo tienen en cuenta).
+export async function registerPrepayment(
+  prepaymentId: string,
+  _prevState: LoanActionState,
+  formData: FormData
+): Promise<LoanActionState> {
+  const userId = await requireUserId();
+
+  const prepayment = await findOwnPrepayment(userId, prepaymentId);
+  if (!prepayment) return { error: "Prepago inválido." };
+  if (prepayment.transactionId) return { error: "Este prepago ya fue registrado." };
+  const payment = prepayment.scheduledPayment;
+  if (!payment.categoryId) return { error: "El préstamo no tiene categoría." };
+  const categoryId = payment.categoryId;
+
+  const date = parseDateOnly(readText(formData, "date"));
+  const paymentMethod = readText(formData, "paymentMethod");
+  const accountId = readText(formData, "accountId");
+  if (!date) return { error: "La fecha no es válida." };
+  if (!isPaymentMethod(paymentMethod)) return { error: "Elegí un método de pago." };
+  const account = accountId
+    ? await prisma.account.findFirst({ where: { id: accountId, userId }, select: { id: true } })
+    : null;
+  if (!account) return { error: "Elegí una cuenta." };
+
+  const mode = prepayment.mode as PrepaymentMode;
+  await prisma.$transaction(async (tx) => {
+    const transaction = await tx.transaction.create({
+      data: {
+        userId,
+        accountId: account.id,
+        categoryId,
+        kind: "EXPENSE",
+        amount: prepayment.amount,
+        reason: payment.name,
+        description: ["Prepago", PREPAYMENT_MODE_LABELS[mode].toLowerCase(), prepayment.note].filter(Boolean).join(" · "),
+        date,
+        paymentMethod,
+      },
+    });
+    await tx.loanPrepayment.update({ where: { id: prepayment.id }, data: { transactionId: transaction.id } });
+  });
+
+  revalidateWithTransactions();
+  return null;
+}
+
+// Borra el gasto; el prepago vuelve a planificado (sigue contando en las cuotas).
+export async function undoPrepayment(prepaymentId: string) {
+  const userId = await requireUserId();
+
+  const prepayment = await findOwnPrepayment(userId, prepaymentId);
+  if (!prepayment?.transactionId) return;
+
+  await prisma.transaction.deleteMany({ where: { id: prepayment.transactionId, userId } });
+  revalidateWithTransactions();
+}
+
+// ---------- Importar cronograma (CSV) ----------
+
+// Lee y valida el CSV del formulario. Se vuelve a validar en el servidor aunque
+// la vista previa ya lo haya hecho.
+function readCsv(formData: FormData): { error: string } | { rows: ImportedInstallment[] } {
+  const text = String(formData.get("csv") ?? "");
+  if (!text.trim()) return { error: "Elegí el archivo CSV del cronograma." };
+  const parsed = parseLoanCsv(text);
+  if (parsed.errors.length > 0) {
+    const first = parsed.errors[0];
+    const more = parsed.errors.length > 1 ? ` (y ${parsed.errors.length - 1} más)` : "";
+    return { error: `${first.line ? `Línea ${first.line}: ` : ""}${first.message}${more}` };
+  }
+  return { rows: parsed.rows };
+}
+
+function installmentData(row: ImportedInstallment, balanceFallback: number) {
+  return {
+    number: row.number,
+    dueDate: row.dueDate,
+    principal: row.principal,
+    interest: row.interest,
+    lifeInsurance: row.lifeInsurance,
+    otherCharges: row.otherCharges,
+    total: row.total,
+    balance: row.balance ?? balanceFallback,
+  };
+}
+
+// Saldo después de cada cuota cuando el archivo no lo trae: se descuenta el capital.
+function fallbackBalances(rows: ImportedInstallment[], principal: number) {
+  let balance = principal;
+  return rows.map((row) => {
+    balance = round2(balance - row.principal);
+    return row.balance ?? balance;
+  });
+}
+
+// Crea un préstamo con el cronograma del CSV tal cual (sin recalcular nada).
+// TEA, monto y desembolso son opcionales: si faltan, se estiman del cronograma
+// (sirven solo para recalcular si después se agrega un prepago).
+export async function importLoan(_prevState: LoanActionState, formData: FormData): Promise<LoanActionState> {
+  const userId = await requireUserId();
+
+  const info = await readLoanInfo(userId, formData);
+  if ("error" in info) return { error: info.error };
+  const csv = readCsv(formData);
+  if ("error" in csv) return { error: csv.error };
+  const { rows } = csv;
+
+  const summary = summarizeImport(rows);
+  const principalInput = readNumber(formData, "principal");
+  const teaInput = readNumber(formData, "teaPercent");
+  const disbursementRaw = readText(formData, "disbursementDate");
+  const disbursementDate = disbursementRaw ? parseDateOnly(disbursementRaw) : defaultDisbursement(rows[0].dueDate);
+  if (principalInput === null) return { error: "El monto no es válido." };
+  if (teaInput === null) return { error: "La TEA no es válida." };
+  if (!disbursementDate) return { error: "La fecha de desembolso no es válida." };
+  if (disbursementDate >= rows[0].dueDate) return { error: "El desembolso tiene que ser antes de la primera cuota." };
+
+  const principal = principalInput || summary.principal || summary.total;
+  const estimated = estimateRates(rows, 360);
+  const balances = fallbackBalances(rows, principal);
+  const { lender, ...paymentInfo } = info.info;
+
+  const payment = await prisma.scheduledPayment.create({
+    data: {
+      userId,
+      type: "LOAN",
+      ...paymentInfo,
+      frequency: "MONTHLY",
+      startDate: rows[0].dueDate,
+      endDate: rows.at(-1)!.dueDate,
+      amount: summary.installment,
+      loan: {
+        create: {
+          lender,
+          principal,
+          tea: teaInput ? teaInput / 100 : (estimated.tea ?? 0),
+          disbursementDate,
+          dayBasis: 360,
+          lifeInsuranceRate: estimated.lifeInsuranceRate,
+          otherCharges: estimated.otherCharges,
+          fixedInstallment: summary.installment,
+          // Las fechas vienen del banco: no se corren.
+          dateShift: "NONE",
+          installments: rows.length,
+          baseInstallment: summary.installment,
+        },
+      },
+      installments: { create: rows.map((row, i) => installmentData(row, balances[i])) },
+    },
+  });
+
+  revalidateLoans();
+  redirect(`/dashboard/prestamos/${payment.id}`);
+}
+
+// Los números provisorios de las cuotas recién creadas son -1, -2, …; al
+// renumerar se pasa por este otro rango para no chocar con ellos.
+const RENUMBER_OFFSET = 1_000_000;
+
+// Numera por fecha sin tocar los saldos (los del banco no se recalculan).
+async function renumberByDate(tx: Prisma.TransactionClient, scheduledPaymentId: string) {
+  const installments = await tx.loanInstallment.findMany({
+    where: { scheduledPaymentId },
+    orderBy: { dueDate: "asc" },
+    select: { id: true, number: true },
+  });
+  const changes = installments.flatMap((row, i) => (row.number !== i + 1 ? [{ id: row.id, number: i + 1 }] : []));
+  for (const change of changes) {
+    await tx.loanInstallment.update({
+      where: { id: change.id },
+      data: { number: -(RENUMBER_OFFSET + change.number) },
+    });
+  }
+  for (const change of changes) {
+    await tx.loanInstallment.update({ where: { id: change.id }, data: { number: change.number } });
+  }
+}
+
+// Reemplaza las cuotas no pagadas con las del CSV (ej. el cronograma nuevo que
+// da el banco después de un prepago). Las pagadas se conservan por fecha y
+// ganan si el archivo trae esa misma fecha. No se recalcula nada: manda el CSV.
+export async function importLoanSchedule(
+  scheduledPaymentId: string,
+  _prevState: LoanActionState,
+  formData: FormData
+): Promise<LoanActionState> {
+  const userId = await requireUserId();
+
+  const payment = await findOwnLoan(userId, scheduledPaymentId);
+  if (!payment?.loan) return { error: "Préstamo inválido." };
+  const csv = readCsv(formData);
+  if ("error" in csv) return { error: csv.error };
+
+  const paid = await prisma.scheduledOccurrence.findMany({
+    where: { scheduledPaymentId: payment.id, status: "PAID" },
+    select: { dueDate: true },
+  });
+  const paidTimes = new Set(paid.map((o) => o.dueDate.getTime()));
+  const rows = csv.rows.filter((row) => !paidTimes.has(row.dueDate.getTime()));
+  const summary = summarizeImport(csv.rows);
+  const principal = paid.length === 0 && summary.principal > 0 ? summary.principal : Number(payment.loan.principal);
+  const balances = fallbackBalances(csv.rows, principal);
+  const balanceByTime = new Map(csv.rows.map((row, i) => [row.dueDate.getTime(), balances[i]]));
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const keptPaid = await tx.loanInstallment.findMany({
+        where: { scheduledPaymentId: payment.id, dueDate: { in: paid.map((o) => o.dueDate) } },
+        select: { dueDate: true },
+      });
+      await tx.loanInstallment.deleteMany({
+        where: { scheduledPaymentId: payment.id, dueDate: { notIn: keptPaid.map((row) => row.dueDate) } },
+      });
+      // Números provisorios negativos para no chocar con los de las pagadas.
+      await tx.loanInstallment.createMany({
+        data: rows.map((row, i) => ({
+          scheduledPaymentId: payment.id,
+          ...installmentData(row, balanceByTime.get(row.dueDate.getTime()) ?? 0),
+          number: -(i + 1),
+        })),
+      });
+      await renumberByDate(tx, payment.id);
+
+      // Omitidas de fechas que ya no existen.
+      const dates = await tx.loanInstallment.findMany({
+        where: { scheduledPaymentId: payment.id },
+        select: { dueDate: true },
+      });
+      await tx.scheduledOccurrence.deleteMany({
+        where: { scheduledPaymentId: payment.id, status: "SKIPPED", dueDate: { notIn: dates.map((d) => d.dueDate) } },
+      });
+
+      await tx.loan.update({
+        where: { scheduledPaymentId: payment.id },
+        data: {
+          principal,
+          installments: dates.length,
+          baseInstallment: summary.installment,
+          fixedInstallment: summary.installment,
+          dateShift: "NONE",
+        },
+      });
+      await syncPaymentDates(tx, payment.id);
+    }, LONG_TRANSACTION);
+  } catch (error) {
+    if (isUniqueViolation(error)) return { error: "Hay dos cuotas con la misma fecha." };
+    throw error;
+  }
+
+  revalidateLoans();
+  return null;
 }

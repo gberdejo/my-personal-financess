@@ -1,24 +1,33 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, BanknoteArrowDown, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ConfirmDeleteButton } from "@/components/finance/confirm-delete-button";
+import { ImportScheduleDialog } from "@/components/finance/import-schedule-dialog";
 import { LoanFormDialog } from "@/components/finance/loan-form-dialog";
 import { LoanInfoDialog } from "@/components/finance/loan-info-dialog";
 import { LoanInstallmentDialog } from "@/components/finance/loan-installment-dialog";
 import { LoanProgress } from "@/components/finance/loan-progress";
 import { OccurrenceDialog } from "@/components/finance/occurrence-dialog";
-import { OccurrenceStatusMark, occurrenceAmountClass } from "@/components/finance/occurrence-row";
+import { OccurrenceStatusMark, occurrenceAmountClass, ROULETTE_MARK } from "@/components/finance/occurrence-row";
+import { PrepaymentDialog } from "@/components/finance/prepayment-dialog";
+import { RegisterPrepaymentDialog, UndoPrepaymentButton } from "@/components/finance/register-prepayment-dialog";
 import { getAccounts } from "@/features/accounts/queries";
 import { getCategories } from "@/features/categories/queries";
 import { deleteLoan, deleteLoanInstallment } from "@/features/loans/actions";
-import { getLoan, type LoanDetail } from "@/features/loans/queries";
+import { getLoan, type LoanDetail, type LoanPrepaymentRow } from "@/features/loans/queries";
 import { shiftMonth, todayInLima, toUTCDateInputValue } from "@/lib/date";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { PREPAYMENT_MODE_LABELS } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 
 type Row = LoanDetail["rows"][number];
+
+// La línea de tiempo mezcla cuotas y prepagos por fecha.
+type TimelineItem = { kind: "installment"; date: Date; row: Row } | { kind: "prepayment"; date: Date; prepayment: LoanPrepaymentRow };
+
+const PREPAYMENT_STATUS_TEXT = { PLANNED: "Planificado", DUE: "Sin registrar", DONE: "Registrado" } as const;
 
 const STATUS_TEXT = { PENDING: "Pendiente", OVERDUE: "Vencida", PAID: "Pagada", SKIPPED: "Omitida" } as const;
 
@@ -26,13 +35,22 @@ function formatPercent(rate: number, digits = 2) {
   return `${(rate * 100).toLocaleString("es-PE", { maximumFractionDigits: digits })} %`;
 }
 
-function groupByYear(rows: Row[]) {
-  const years = new Map<number, Row[]>();
-  for (const row of rows) {
-    const year = row.dueDate.getUTCFullYear();
-    years.set(year, [...(years.get(year) ?? []), row]);
+function groupByYear(rows: Row[], prepayments: LoanPrepaymentRow[]) {
+  const items: TimelineItem[] = [
+    ...rows.map((row) => ({ kind: "installment" as const, date: row.dueDate, row })),
+    ...prepayments.map((prepayment) => ({ kind: "prepayment" as const, date: prepayment.date, prepayment })),
+  ].sort((a, b) => a.date.getTime() - b.date.getTime() || (a.kind === "installment" ? -1 : 1));
+
+  const years = new Map<number, TimelineItem[]>();
+  for (const item of items) {
+    const year = item.date.getUTCFullYear();
+    years.set(year, [...(years.get(year) ?? []), item]);
   }
   return [...years.entries()];
+}
+
+function itemAmount(item: TimelineItem) {
+  return item.kind === "installment" ? item.row.total : item.prepayment.amount;
 }
 
 export default async function PrestamoPage({ params }: { params: Promise<{ id: string }> }) {
@@ -121,6 +139,15 @@ export default async function PrestamoPage({ params }: { params: Promise<{ id: s
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-medium text-muted-foreground">Cronograma de cuotas</h2>
         <div className="flex flex-wrap items-center gap-2">
+          <Button asChild variant="ghost">
+            {/* <a> y no <Link>: es una descarga. */}
+            <a href={`/dashboard/prestamos/${summary.id}/cronograma`} download>
+              <Download />
+              Descargar cronograma
+            </a>
+          </Button>
+          <ImportScheduleDialog scheduledPaymentId={summary.id} paidCount={summary.paidCount} />
+          <PrepaymentDialog scheduledPaymentId={summary.id} defaultDate={toUTCDateInputValue(todayInLima())} />
           <LoanInstallmentDialog scheduledPaymentId={summary.id} defaultDate={nextDefault} />
           <LoanFormDialog
             accounts={accounts}
@@ -157,18 +184,37 @@ export default async function PrestamoPage({ params }: { params: Promise<{ id: s
           <span />
         </div>
         <CardContent className="px-0">
-          {groupByYear(rows).map(([year, yearRows]) => (
+          {groupByYear(rows, loan.prepayments).map(([year, items]) => (
             <details key={year} open={year === currentYear || year === currentYear + 1} className="group border-t first:border-t-0">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-2 text-xs font-medium text-muted-foreground hover:bg-muted/40">
                 <span>{year}</span>
                 <span className="tabular-nums">
-                  {yearRows.length} cuotas · {formatCurrency(yearRows.reduce((sum, row) => sum + row.total, 0))}
+                  {items.filter((item) => item.kind === "installment").length} cuotas
+                  {items.some((item) => item.kind === "prepayment") &&
+                    ` + ${items.filter((item) => item.kind === "prepayment").length} prepago(s)`}{" "}
+                  · {formatCurrency(items.reduce((sum, item) => sum + itemAmount(item), 0))}
                 </span>
               </summary>
               <ul>
-                {yearRows.map((row) => (
-                  <InstallmentRow key={row.id} row={row} scheduledPaymentId={summary.id} accounts={accounts} />
-                ))}
+                {items.map((item) =>
+                  item.kind === "installment" ? (
+                    <InstallmentRow
+                      key={item.row.id}
+                      row={item.row}
+                      scheduledPaymentId={summary.id}
+                      accounts={accounts}
+                    />
+                  ) : (
+                    <PrepaymentRow
+                      key={item.prepayment.id}
+                      prepayment={item.prepayment}
+                      scheduledPaymentId={summary.id}
+                      accounts={accounts}
+                      defaultAccountId={loan.payment.accountId}
+                      defaultPaymentMethod={loan.payment.paymentMethod}
+                    />
+                  )
+                )}
               </ul>
             </details>
           ))}
@@ -242,6 +288,75 @@ function InstallmentRow({
               title={`¿Eliminar la cuota ${row.number}?`}
               description="Se quita del cronograma y se recalculan los saldos de las siguientes."
               onConfirm={deleteLoanInstallment.bind(null, scheduledPaymentId, row.id)}
+            />
+          </>
+        )}
+      </div>
+    </li>
+  );
+}
+
+function PrepaymentRow({
+  prepayment,
+  scheduledPaymentId,
+  accounts,
+  defaultAccountId,
+  defaultPaymentMethod,
+}: {
+  prepayment: LoanPrepaymentRow;
+  scheduledPaymentId: string;
+  accounts: { id: string; name: string }[];
+  defaultAccountId: string | null;
+  defaultPaymentMethod: LoanDetail["payment"]["paymentMethod"];
+}) {
+  const done = prepayment.status === "DONE";
+  const label = `Prepago · ${PREPAYMENT_MODE_LABELS[prepayment.mode].toLowerCase()}`;
+
+  return (
+    <li className="grid grid-cols-[2rem_1fr_auto] items-center gap-x-3 gap-y-1 border-t bg-primary/5 px-4 py-2 text-sm md:grid-cols-[2rem_6.5rem_1fr_1fr_1fr_1fr_1fr_8.5rem]">
+      <BanknoteArrowDown className="size-4 text-primary" />
+      <div className="flex items-center gap-2">
+        <OccurrenceStatusMark status={ROULETTE_MARK[prepayment.status]} className="size-4" />
+        <span className="tabular-nums">{formatDate(prepayment.date)}</span>
+      </div>
+      <span className="hidden truncate text-primary md:col-span-3 md:block">
+        {label}
+        {prepayment.note && <span className="text-muted-foreground"> · {prepayment.note}</span>}
+      </span>
+      <span className={cn("text-right font-semibold tabular-nums", done && "text-expense")}>
+        {formatCurrency(prepayment.amount)}
+      </span>
+      <span className="hidden text-right text-xs text-muted-foreground md:block">
+        {PREPAYMENT_STATUS_TEXT[prepayment.status]}
+      </span>
+
+      <div className="col-span-3 flex items-center justify-end gap-1 md:col-span-1">
+        <span className="mr-auto truncate text-xs text-primary md:hidden">{label}</span>
+        {done ? (
+          <UndoPrepaymentButton prepaymentId={prepayment.id} />
+        ) : (
+          <>
+            <RegisterPrepaymentDialog
+              prepayment={{
+                id: prepayment.id,
+                amount: prepayment.amount,
+                date: toUTCDateInputValue(prepayment.date),
+                label,
+              }}
+              accounts={accounts}
+              defaultAccountId={defaultAccountId}
+              defaultPaymentMethod={defaultPaymentMethod}
+            />
+            <PrepaymentDialog
+              scheduledPaymentId={scheduledPaymentId}
+              defaultDate={toUTCDateInputValue(prepayment.date)}
+              prepayment={{
+                id: prepayment.id,
+                date: toUTCDateInputValue(prepayment.date),
+                amount: prepayment.amount,
+                mode: prepayment.mode,
+                note: prepayment.note,
+              }}
             />
           </>
         )}

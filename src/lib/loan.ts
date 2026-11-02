@@ -116,23 +116,6 @@ function simulate(params: LoanParams, dueDates: Date[], installment: number) {
   });
 }
 
-// Rehace las cuotas que siguen a una editada a mano (mismas fechas), con la tasa
-// y los seguros del préstamo y partiendo del saldo que dejó esa cuota. Sirve
-// cuando el banco tiene una regla propia en un periodo (ej. el primero) y se
-// copió esa cuota tal cual.
-export function recalculateFollowing(
-  params: LoanParams,
-  edited: { number: number; dueDate: Date; balance: number },
-  dueDates: Date[],
-  installment: number
-) {
-  return simulateFrom(params, dueDates, installment, {
-    balance: edited.balance,
-    date: edited.dueDate,
-    number: edited.number + 1,
-  });
-}
-
 // Cuota fija (a céntimos) con la que la última cuota queda lo más cerca posible
 // de las demás.
 function solveInstallment(params: LoanParams, dueDates: Date[]) {
@@ -175,4 +158,149 @@ export function summarizeLoan(rows: { principal: number; interest: number; lifeI
 export function overpaidInstallment(rows: GeneratedInstallment[]) {
   const row = rows.find((r) => r.balance < 0 || r.total <= 0);
   return row ? row.number : null;
+}
+
+// ---------- Prepagos ----------
+
+// TERM = reducir el plazo (la cuota sigue igual y se termina antes).
+// INSTALLMENT = reducir la cuota (se mantienen las fechas y baja la cuota).
+export type PrepaymentMode = "TERM" | "INSTALLMENT";
+
+export const PREPAYMENT_MODES: PrepaymentMode[] = ["TERM", "INSTALLMENT"];
+
+export type PrepaymentEvent = { date: Date; amount: number; mode: PrepaymentMode };
+
+export type RebuildError =
+  | { kind: "exceeds"; date: Date; balance: number }
+  | { kind: "afterEnd"; date: Date };
+
+type RunState = {
+  balance: number;
+  // Desde dónde se acumulan interés y desgravamen (un vencimiento o un prepago).
+  from: Date;
+  // Último vencimiento: los cargos fijos mensuales se prorratean desde acá.
+  periodStart: Date;
+  accruedInterest: number;
+  accruedLife: number;
+  number: number;
+};
+
+function accrue(state: RunState, to: Date, params: LoanParams) {
+  const days = periodDays(state.from, to);
+  state.accruedInterest += state.balance * ((1 + params.tea) ** (days / params.dayBasis) - 1);
+  state.accruedLife += state.balance * params.lifeInsuranceRate * (days / 30);
+  state.from = to;
+}
+
+// Cuotas desde `initial` en `dueDates`, aplicando los prepagos por fecha. Un
+// prepago dentro de un periodo parte el interés en dos tramos (saldo anterior
+// hasta el prepago, saldo nuevo desde ahí). Si la cuota alcanza para todo lo
+// que queda, esa es la última (así termina antes un prepago a plazo).
+function run(
+  params: LoanParams,
+  initial: RunState,
+  dueDates: Date[],
+  installment: number,
+  events: PrepaymentEvent[]
+): { rows: GeneratedInstallment[] } | { error: RebuildError } {
+  const state = { ...initial };
+  const rows: GeneratedInstallment[] = [];
+  let cuota = installment;
+  let next = 0;
+
+  for (const [i, dueDate] of dueDates.entries()) {
+    while (next < events.length && events[next].date <= dueDate) {
+      const prepayment = events[next++];
+      accrue(state, prepayment.date, params);
+      if (prepayment.amount > state.balance + 0.004) {
+        return { error: { kind: "exceeds", date: prepayment.date, balance: state.balance } };
+      }
+      state.balance = round2(state.balance - prepayment.amount);
+      if (prepayment.mode === "INSTALLMENT" && state.balance > 0) {
+        cuota = solveFrom(params, state, dueDates.slice(i));
+      }
+    }
+
+    accrue(state, dueDate, params);
+    const interest = round2(state.accruedInterest);
+    const lifeInsurance = round2(state.accruedLife);
+    const otherCharges = round2(params.otherCharges * (periodDays(state.periodStart, dueDate) / 30));
+    const fees = interest + lifeInsurance + otherCharges;
+    const closes = i === dueDates.length - 1 || round2(cuota - fees) >= state.balance;
+    const principal = closes ? state.balance : round2(cuota - fees);
+    state.balance = round2(state.balance - principal);
+    rows.push({
+      number: state.number++,
+      dueDate,
+      principal: round2(principal),
+      interest,
+      lifeInsurance,
+      otherCharges,
+      total: round2(principal + fees),
+      balance: state.balance,
+    });
+    state.accruedInterest = 0;
+    state.accruedLife = 0;
+    state.periodStart = dueDate;
+    if (closes) break;
+  }
+
+  // Un prepago después de la última cuota (el préstamo ya terminó antes).
+  if (next < events.length) return { error: { kind: "afterEnd", date: events[next].date } };
+  return { rows };
+}
+
+// Cuota (a céntimos) que cancela el saldo justo en la última de `dueDates`.
+function solveFrom(params: LoanParams, state: RunState, dueDates: Date[]) {
+  let low = 0;
+  let high = Math.ceil((state.balance * 2 + 10_000) * 100);
+  const fits = (cents: number) => {
+    const result = run(params, { ...state }, dueDates, cents / 100, []);
+    if ("error" in result) return true;
+    const rows = result.rows;
+    // Con la cuota justa no termina antes y la última no la supera.
+    return rows.length < dueDates.length || rows.at(-1)!.total <= cents / 100;
+  };
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (fits(mid)) high = mid;
+    else low = mid + 1;
+  }
+  return low / 100;
+}
+
+// Fechas mensuales que siguen a `last` con el día `baseDay`, para recuperar
+// cuotas que un prepago a plazo había quitado.
+export function extendDueDates(last: Date, baseDay: number, count: number, dateShift: LoanDateShift) {
+  return Array.from({ length: count }, (_, i) =>
+    shiftDueDate(clampedDate(last.getUTCFullYear(), last.getUTCMonth() + 1 + i, baseDay), dateShift)
+  ).filter((date) => date > last);
+}
+
+// Rehace las cuotas en `dueDates` desde `start` (saldo y fecha de la última
+// cuota que se conserva) con la cuota vigente y los prepagos desde esa fecha.
+export function rebuildSchedule(
+  params: LoanParams,
+  start: { balance: number; date: Date; number: number },
+  dueDates: Date[],
+  installment: number,
+  prepayments: PrepaymentEvent[]
+) {
+  const events = prepayments
+    .filter((p) => p.date >= start.date)
+    .sort((a, b) => a.date.getTime() - b.date.getTime());
+  return run(
+    params,
+    {
+      balance: start.balance,
+      from: start.date,
+      periodStart: start.date,
+      accruedInterest: 0,
+      accruedLife: 0,
+      number: start.number,
+    },
+    dueDates,
+    installment,
+    events
+  );
 }

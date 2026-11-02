@@ -10,11 +10,12 @@ const karla = Karla({
   subsets: ["latin"],
 });
 
+// Fuente variable: sin `weight` cubre todos los pesos. Pedir pesos fijos hace
+// que Google devuelva URLs que Turbopack no sabe resolver.
 const newsreader = Newsreader({
   variable: "--font-serif",
   subsets: ["latin"],
   style: ["normal", "italic"],
-  weight: ["400", "500", "600"],
 });
 
 const robotoMono = Roboto_Mono({

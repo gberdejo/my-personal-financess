@@ -94,3 +94,8 @@ export const LOAN_DATE_SHIFT_LABELS: Record<"NONE" | "SUNDAY" | "WEEKEND", strin
   WEEKEND: "Si cae sábado o domingo, el lunes",
   NONE: "No mover la fecha",
 };
+
+export const PREPAYMENT_MODE_LABELS: Record<"TERM" | "INSTALLMENT", string> = {
+  TERM: "Reducir plazo",
+  INSTALLMENT: "Reducir cuota",
+};
