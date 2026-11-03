@@ -2,11 +2,12 @@ import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/auth";
 import type { PaymentMethod } from "@/generated/prisma/client";
 
-export async function getDashboardSummaryForRange(start: Date, end: Date) {
+// `accountId`: solo los movimientos de esa cuenta; null = todas.
+export async function getDashboardSummaryForRange(start: Date, end: Date, accountId: string | null = null) {
   const userId = await requireUserId();
 
   const transactions = await prisma.transaction.findMany({
-    where: { userId, date: { gte: start, lt: end } },
+    where: { userId, date: { gte: start, lt: end }, ...(accountId ? { accountId } : {}) },
     include: { category: true, account: true },
     orderBy: { date: "desc" },
   });

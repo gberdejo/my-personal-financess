@@ -8,6 +8,7 @@ import { PaymentMethodBreakdown } from "@/components/finance/payment-method-brea
 import { RecurringExpensesList } from "@/components/finance/recurring-expenses-list";
 import { TopExpensesList } from "@/components/finance/top-expenses-list";
 import { PeriodRangeFilter, type PeriodSelection } from "@/components/finance/period-range-filter";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getDashboardSummaryForRangeAction } from "@/features/dashboard/actions";
 import { getPresetRange } from "@/lib/period";
 import { monthRange, toDateInputValue, toUTCDateInputValue } from "@/lib/date";
@@ -15,6 +16,10 @@ import { formatCurrency, formatTransactionDate } from "@/lib/format";
 import type { PaymentMethod, TransactionKind } from "@/generated/prisma/client";
 
 type CategoryTotal = { name: string; total: number };
+type AccountOption = { id: string; name: string };
+
+// Valor del selector para ver todas las cuentas juntas.
+const ALL_ACCOUNTS = "ALL";
 type PaymentMethodTotal = { method: PaymentMethod | null; total: number };
 type TransactionRow = {
   id: string;
@@ -38,16 +43,19 @@ export function DashboardOverview({
   initialSummary,
   initialYear,
   initialMonth,
+  accounts,
 }: {
   initialSummary: Summary;
   initialYear: number;
   initialMonth: number;
+  accounts: AccountOption[];
 }) {
   const [selection, setSelection] = useState<PeriodSelection>({
     preset: "thisMonth",
     customStart: toUTCDateInputValue(monthRange(initialYear, initialMonth).start),
     customEnd: toDateInputValue(new Date()),
   });
+  const [accountId, setAccountId] = useState(ALL_ACCOUNTS);
   const [summary, setSummary] = useState<Summary>(initialSummary);
   const [isPending, startTransition] = useTransition();
   const isFirstRender = useRef(true);
@@ -60,16 +68,37 @@ export function DashboardOverview({
     const range = getPresetRange(selection.preset, selection.customStart, selection.customEnd);
     if (!range) return;
     startTransition(async () => {
-      const result = await getDashboardSummaryForRangeAction(range.start.toISOString(), range.end.toISOString());
+      const result = await getDashboardSummaryForRangeAction(
+        range.start.toISOString(),
+        range.end.toISOString(),
+        accountId === ALL_ACCOUNTS ? null : accountId
+      );
       setSummary(result);
     });
-  }, [selection]);
+  }, [selection, accountId]);
 
   return (
     <div className={`flex flex-col gap-4 transition-opacity ${isPending ? "opacity-60" : ""}`}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="font-heading text-2xl font-medium italic md:text-3xl">Resumen</h1>
-        <PeriodRangeFilter value={selection} onApply={setSelection} />
+        <div className="flex flex-wrap items-center gap-2">
+          {accounts.length > 1 && (
+            <Select value={accountId} onValueChange={setAccountId}>
+              <SelectTrigger aria-label="Cuenta" className="w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_ACCOUNTS}>Todas las cuentas</SelectItem>
+                {accounts.map((account) => (
+                  <SelectItem key={account.id} value={account.id}>
+                    {account.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <PeriodRangeFilter value={selection} onApply={setSelection} />
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

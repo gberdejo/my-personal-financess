@@ -6,7 +6,12 @@ import type { PaymentMethod } from "@/generated/prisma/client";
 // "NONE" son los gastos sin método de pago (registrados antes de existir el campo).
 export type PaymentMethodFilter = PaymentMethod | "NONE";
 
-export async function getTransactionsForMonth(year: number, month: number, method?: PaymentMethodFilter) {
+export async function getTransactionsForMonth(
+  year: number,
+  month: number,
+  method?: PaymentMethodFilter,
+  accountId?: string
+) {
   const userId = await requireUserId();
   const { start, end } = monthRange(year, month);
 
@@ -16,7 +21,7 @@ export async function getTransactionsForMonth(year: number, month: number, metho
     : {};
 
   const transactions = await prisma.transaction.findMany({
-    where: { userId, date: { gte: start, lt: end }, ...methodWhere },
+    where: { userId, date: { gte: start, lt: end }, ...methodWhere, ...(accountId ? { accountId } : {}) },
     include: {
       account: true,
       category: true,

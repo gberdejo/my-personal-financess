@@ -13,6 +13,7 @@ import { MonthNav } from "@/components/finance/month-nav";
 import { ConfirmDeleteButton } from "@/components/finance/confirm-delete-button";
 import { EditTransactionDialog } from "@/components/finance/edit-transaction-dialog";
 import { ReceiptsDialog } from "@/components/finance/receipts-dialog";
+import { AccountFilter } from "@/components/finance/account-filter";
 import { PaymentMethodFilter } from "@/components/finance/payment-method-filter";
 import { TransactionFormDialog } from "@/components/finance/transaction-form-dialog";
 import { getAccounts } from "@/features/accounts/queries";
@@ -42,16 +43,19 @@ function extraDescription(reason: string | null, description: string | null) {
 export default async function TransaccionesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ month?: string; method?: string }>;
+  searchParams: Promise<{ month?: string; method?: string; account?: string }>;
 }) {
-  const { month: monthParam, method: methodParam } = await searchParams;
+  const { month: monthParam, method: methodParam, account: accountParam } = await searchParams;
   const { year, month } = parseMonthParam(monthParam);
   const method = parseMethodParam(methodParam);
 
-  const [transactions, accounts, incomeCategories, expenseCategories, reasonSuggestions, frequentCategoryIds] =
+  const accounts = await getAccounts();
+  // Solo una cuenta propia: un id ajeno o viejo en la URL se ignora.
+  const account = accounts.find((a) => a.id === accountParam) ?? null;
+
+  const [transactions, incomeCategories, expenseCategories, reasonSuggestions, frequentCategoryIds] =
     await Promise.all([
-      getTransactionsForMonth(year, month, method ?? undefined),
-      getAccounts(),
+      getTransactionsForMonth(year, month, method ?? undefined, account?.id),
       getCategories("INCOME"),
       getCategories("EXPENSE"),
       getReasonSuggestions(),
@@ -64,6 +68,7 @@ export default async function TransaccionesPage({
         <h1 className="font-heading text-2xl font-medium italic md:text-3xl">Transacciones</h1>
         <div className="flex flex-wrap items-center gap-2">
           <MonthNav year={year} month={month} />
+          <AccountFilter accounts={accounts} value={account?.id ?? null} />
           <PaymentMethodFilter value={method} />
           <Button variant="outline" asChild>
             <Link href="/dashboard/importaciones">
@@ -80,6 +85,19 @@ export default async function TransaccionesPage({
           />
         </div>
       </div>
+
+      {account && !method && transactions.length > 0 && (
+        <p className="text-sm text-muted-foreground">
+          {account.name} este mes: ingresos{" "}
+          <span className="font-medium text-income tabular-nums">
+            {formatCurrency(transactions.filter((t) => t.kind === "INCOME").reduce((sum, t) => sum + t.amount, 0))}
+          </span>{" "}
+          · gastos{" "}
+          <span className="font-medium text-expense tabular-nums">
+            {formatCurrency(transactions.filter((t) => t.kind === "EXPENSE").reduce((sum, t) => sum + t.amount, 0))}
+          </span>
+        </p>
+      )}
 
       {method && transactions.length > 0 && (
         <p className="text-sm text-muted-foreground">
@@ -107,7 +125,11 @@ export default async function TransaccionesPage({
           {transactions.length === 0 ? (
             <TableRow>
               <TableCell colSpan={7} className="text-center text-muted-foreground">
-                {method ? "No hay gastos con este método de pago en este mes." : "No hay transacciones en este mes."}
+                {method
+                  ? "No hay gastos con este método de pago en este mes."
+                  : account
+                    ? `No hay transacciones de ${account.name} en este mes.`
+                    : "No hay transacciones en este mes."}
               </TableCell>
             </TableRow>
           ) : (
