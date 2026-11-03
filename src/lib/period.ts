@@ -1,4 +1,4 @@
-import { dayRange, monthRange, parseDateOnly, shiftDay, shiftMonth, weekRange } from "@/lib/date";
+import { dayRange, monthRange, parseDateOnly, shiftDay, shiftMonth, todayInLima, weekRange } from "@/lib/date";
 import { formatDate } from "@/lib/format";
 
 export type PeriodPreset =
@@ -24,6 +24,17 @@ export const PERIOD_PRESETS: { value: PeriodPreset; label: string }[] = [
   { value: "custom", label: "Rango personalizado" },
 ];
 
+export function isPeriodPreset(value: string): value is PeriodPreset {
+  return PERIOD_PRESETS.some((item) => item.value === value);
+}
+
+// "Ahora" para calcular un periodo en el servidor: getPresetRange lee el día con
+// getters locales, que en el servidor serían los de su zona horaria y no los de Lima.
+export function periodNowInLima() {
+  const today = todayInLima();
+  return new Date(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 12);
+}
+
 export function getCustomRange(startValue: string, endValue: string) {
   const start = parseDateOnly(startValue);
   const end = parseDateOnly(endValue);
@@ -31,8 +42,7 @@ export function getCustomRange(startValue: string, endValue: string) {
   return { start, end: shiftDay(end, 1) };
 }
 
-export function getPresetRange(preset: PeriodPreset, customStart: string, customEnd: string) {
-  const now = new Date();
+export function getPresetRange(preset: PeriodPreset, customStart: string, customEnd: string, now = new Date()) {
   switch (preset) {
     case "today":
       return dayRange(now);

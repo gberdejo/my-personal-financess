@@ -3,10 +3,17 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { ConfirmDeleteButton } from "@/components/finance/confirm-delete-button";
+import { EditTransactionDialog } from "@/components/finance/edit-transaction-dialog";
 import { ImportedMovementsTable } from "@/components/finance/imported-movements-table";
+import { ReceiptsDialog } from "@/components/finance/receipts-dialog";
 import { RestoreMovementButton, UnapplyMovementButton } from "@/components/finance/imported-movement-actions";
 import { getAccounts } from "@/features/accounts/queries";
-import { getCategories, getFrequentCategoryIds, getReasonSuggestions } from "@/features/categories/queries";
+import {
+  getCategories,
+  getFrequentCategoryIds,
+  getReasonSuggestions,
+  type ReasonSuggestion,
+} from "@/features/categories/queries";
 import { deleteImport } from "@/features/imports/actions";
 import { getImport, type ImportedMovementRow, type MovementStatus } from "@/features/imports/queries";
 import { toUTCDateInputValue } from "@/lib/date";
@@ -127,7 +134,15 @@ export default async function ImportacionPage({
           <CardContent className="px-0">
             <ul>
               {movements.map((m) => (
-                <MovementLine key={m.id} movement={m} importId={summary.id} showStatus={tab.status === null} />
+                <MovementLine
+                  key={m.id}
+                  movement={m}
+                  importId={summary.id}
+                  showStatus={tab.status === null}
+                  categories={m.kind === "INCOME" ? incomeCategories : expenseCategories}
+                  frequentCategoryIds={frequentCategoryIds}
+                  reasonSuggestions={reasonSuggestions}
+                />
               ))}
             </ul>
           </CardContent>
@@ -141,10 +156,17 @@ function MovementLine({
   movement,
   importId,
   showStatus,
+  categories,
+  frequentCategoryIds,
+  reasonSuggestions,
 }: {
   movement: ImportedMovementRow;
   importId: string;
   showStatus: boolean;
+  // Las del mismo tipo que el movimiento, para editar su transacción.
+  categories: { id: string; name: string }[];
+  frequentCategoryIds: string[];
+  reasonSuggestions: Record<string, ReasonSuggestion[]>;
 }) {
   const income = movement.kind === "INCOME";
   const { transaction } = movement;
@@ -164,7 +186,14 @@ function MovementLine({
           <p className="truncate text-xs text-muted-foreground">
             <span className="sm:hidden">{formatDate(movement.date)} · </span>
             {transaction
-              ? `${transaction.categoryName} · ${transaction.accountName}${transaction.created ? "" : " · vinculado"}`
+              ? [
+                  transaction.categoryName,
+                  transaction.reason,
+                  transaction.accountName,
+                  transaction.created ? null : "vinculado",
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
               : (movement.message ?? "Sin mensaje")}
           </p>
         </div>
@@ -192,6 +221,20 @@ function MovementLine({
             >
               Ver
             </Link>
+            <ReceiptsDialog urls={transaction.receiptUrls} title={transaction.reason ?? undefined} />
+            <EditTransactionDialog
+              transactionId={transaction.id}
+              kind={transaction.kind}
+              currentDate={toUTCDateInputValue(transaction.date)}
+              currentCategoryId={transaction.categoryId}
+              currentPaymentMethod={transaction.paymentMethod}
+              currentReason={transaction.reason}
+              currentDescription={transaction.description}
+              currentReceiptUrls={transaction.receiptUrls}
+              categories={categories}
+              frequentCategoryIds={frequentCategoryIds}
+              reasonSuggestions={reasonSuggestions}
+            />
             <UnapplyMovementButton movementId={movement.id} created={transaction.created} />
           </>
         )}

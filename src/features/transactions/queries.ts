@@ -1,19 +1,18 @@
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/auth";
-import { monthRange } from "@/lib/date";
 import type { PaymentMethod } from "@/generated/prisma/client";
 
 // "NONE" son los gastos sin método de pago (registrados antes de existir el campo).
 export type PaymentMethodFilter = PaymentMethod | "NONE";
 
-export async function getTransactionsForMonth(
-  year: number,
-  month: number,
+// Transacciones en [start, end), opcionalmente de un método de pago o una cuenta.
+export async function getTransactionsForRange(
+  start: Date,
+  end: Date,
   method?: PaymentMethodFilter,
   accountId?: string
 ) {
   const userId = await requireUserId();
-  const { start, end } = monthRange(year, month);
 
   // Filtrar por método solo tiene sentido en gastos: los ingresos quedan fuera.
   const methodWhere = method

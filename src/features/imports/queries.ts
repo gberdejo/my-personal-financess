@@ -88,11 +88,18 @@ export type ImportedMovementRow = {
   message: string | null;
   rawType: string;
   status: MovementStatus;
+  // Lo necesario para mostrarla y editarla desde la importación.
   transaction: {
     id: string;
+    kind: TransactionKind;
     date: Date;
+    categoryId: string;
     categoryName: string;
     accountName: string;
+    reason: string | null;
+    description: string | null;
+    paymentMethod: PaymentMethod | null;
+    receiptUrls: string[];
     // true si la creó este movimiento; false si se vinculó a una existente.
     created: boolean;
   } | null;
@@ -166,7 +173,13 @@ export async function getImport(importId: string): Promise<ImportDetail | null> 
           transaction: {
             select: {
               id: true,
+              kind: true,
               date: true,
+              categoryId: true,
+              reason: true,
+              description: true,
+              paymentMethod: true,
+              receiptUrls: true,
               category: { select: { name: true } },
               account: { select: { name: true } },
             },
@@ -241,9 +254,15 @@ export async function getImport(importId: string): Promise<ImportDetail | null> 
       transaction: m.transaction
         ? {
             id: m.transaction.id,
+            kind: m.transaction.kind,
             date: m.transaction.date,
+            categoryId: m.transaction.categoryId,
             categoryName: m.transaction.category.name,
             accountName: m.transaction.account.name,
+            reason: m.transaction.reason,
+            description: m.transaction.description,
+            paymentMethod: m.transaction.paymentMethod,
+            receiptUrls: m.transaction.receiptUrls,
             created: m.createdTransaction,
           }
         : null,

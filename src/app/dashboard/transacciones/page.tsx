@@ -9,7 +9,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { MonthNav } from "@/components/finance/month-nav";
+import type { PeriodSelection } from "@/components/finance/period-range-filter";
+import { TransactionsPeriodFilter } from "@/components/finance/transactions-period-filter";
 import { ConfirmDeleteButton } from "@/components/finance/confirm-delete-button";
 import { EditTransactionDialog } from "@/components/finance/edit-transaction-dialog";
 import { ReceiptsDialog } from "@/components/finance/receipts-dialog";
@@ -19,8 +20,9 @@ import { TransactionFormDialog } from "@/components/finance/transaction-form-dia
 import { getAccounts } from "@/features/accounts/queries";
 import { getCategories, getFrequentCategoryIds, getReasonSuggestions } from "@/features/categories/queries";
 import { deleteTransaction } from "@/features/transactions/actions";
-import { getTransactionsForMonth, type PaymentMethodFilter as MethodFilter } from "@/features/transactions/queries";
-import { parseMonthParam, toUTCDateInputValue } from "@/lib/date";
+import { getTransactionsForRange, type PaymentMethodFilter as MethodFilter } from "@/features/transactions/queries";
+import { monthRange, parseMonthParam, shiftDay, todayInLima, toUTCDateInputValue } from "@/lib/date";
+import { getPresetRange, isPeriodPreset, periodNowInLima } from "@/lib/period";
 import { formatCurrency, formatTransactionDateTime } from "@/lib/format";
 import { isPaymentMethod, NO_PAYMENT_METHOD_LABEL, PAYMENT_METHOD_LABELS } from "@/lib/labels";
 import { IMPORT_SOURCES, isImportSource } from "@/lib/imports/sources";
@@ -40,14 +42,48 @@ function extraDescription(reason: string | null, description: string | null) {
   return description;
 }
 
-export default async function TransaccionesPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ month?: string; method?: string; account?: string }>;
-}) {
-  const { month: monthParam, method: methodParam, account: accountParam } = await searchParams;
-  const { year, month } = parseMonthParam(monthParam);
-  const method = parseMethodParam(methodParam);
+type SearchParams = {
+  periodo?: string;
+  desde?: string;
+  hasta?: string;
+  month?: string;
+  method?: string;
+  account?: string;
+};
+
+// Periodo elegido: `?periodo=` (con `desde`/`hasta` si es personalizado), o
+// `?month=YYYY-MM` de los enlaces anteriores como rango de ese mes. Por defecto, este mes.
+function readPeriod(params: SearchParams): PeriodSelection {
+  const now = periodNowInLima();
+  const thisMonth = monthRange(now.getFullYear(), now.getMonth() + 1);
+  const defaults = {
+    customStart: toUTCDateInputValue(thisMonth.start),
+    customEnd: toUTCDateInputValue(todayInLima()),
+  };
+  if (params.periodo && isPeriodPreset(params.periodo)) {
+    return {
+      preset: params.periodo,
+      customStart: params.desde ?? defaults.customStart,
+      customEnd: params.hasta ?? defaults.customEnd,
+    };
+  }
+  if (params.month && /^\d{4}-\d{2}$/.test(params.month)) {
+    const { year, month } = parseMonthParam(params.month);
+    const { start, end } = monthRange(year, month);
+    return { preset: "custom", customStart: toUTCDateInputValue(start), customEnd: toUTCDateInputValue(shiftDay(end, -1)) };
+  }
+  return { preset: "thisMonth", ...defaults };
+}
+
+export default async function TransaccionesPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  const params = await searchParams;
+  const period = readPeriod(params);
+  const now = periodNowInLima();
+  const range =
+    getPresetRange(period.preset, period.customStart, period.customEnd, now) ??
+    monthRange(now.getFullYear(), now.getMonth() + 1);
+  const method = parseMethodParam(params.method);
+  const accountParam = params.account;
 
   const accounts = await getAccounts();
   // Solo una cuenta propia: un id ajeno o viejo en la URL se ignora.
@@ -55,7 +91,7 @@ export default async function TransaccionesPage({
 
   const [transactions, incomeCategories, expenseCategories, reasonSuggestions, frequentCategoryIds] =
     await Promise.all([
-      getTransactionsForMonth(year, month, method ?? undefined, account?.id),
+      getTransactionsForRange(range.start, range.end, method ?? undefined, account?.id),
       getCategories("INCOME"),
       getCategories("EXPENSE"),
       getReasonSuggestions(),
@@ -67,7 +103,7 @@ export default async function TransaccionesPage({
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="font-heading text-2xl font-medium italic md:text-3xl">Transacciones</h1>
         <div className="flex flex-wrap items-center gap-2">
-          <MonthNav year={year} month={month} />
+          <TransactionsPeriodFilter value={period} />
           <AccountFilter accounts={accounts} value={account?.id ?? null} />
           <PaymentMethodFilter value={method} />
           <Button variant="outline" asChild>
@@ -88,7 +124,7 @@ export default async function TransaccionesPage({
 
       {account && !method && transactions.length > 0 && (
         <p className="text-sm text-muted-foreground">
-          {account.name} este mes: ingresos{" "}
+          {account.name} en el periodo: ingresos{" "}
           <span className="font-medium text-income tabular-nums">
             {formatCurrency(transactions.filter((t) => t.kind === "INCOME").reduce((sum, t) => sum + t.amount, 0))}
           </span>{" "}
@@ -102,7 +138,7 @@ export default async function TransaccionesPage({
       {method && transactions.length > 0 && (
         <p className="text-sm text-muted-foreground">
           {transactions.length === 1 ? "1 gasto" : `${transactions.length} gastos`}{" "}
-          {method === "NONE" ? "sin método de pago" : `con ${PAYMENT_METHOD_LABELS[method]}`} este mes:{" "}
+          {method === "NONE" ? "sin método de pago" : `con ${PAYMENT_METHOD_LABELS[method]}`} en el periodo:{" "}
           <span className="font-medium text-expense tabular-nums">
             {formatCurrency(transactions.reduce((sum, t) => sum + t.amount, 0))}
           </span>
@@ -126,10 +162,10 @@ export default async function TransaccionesPage({
             <TableRow>
               <TableCell colSpan={7} className="text-center text-muted-foreground">
                 {method
-                  ? "No hay gastos con este método de pago en este mes."
+                  ? "No hay gastos con este método de pago en este periodo."
                   : account
-                    ? `No hay transacciones de ${account.name} en este mes.`
-                    : "No hay transacciones en este mes."}
+                    ? `No hay transacciones de ${account.name} en este periodo.`
+                    : "No hay transacciones en este periodo."}
               </TableCell>
             </TableRow>
           ) : (
