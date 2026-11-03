@@ -117,11 +117,29 @@ export async function updateTransaction(
   const date = parseDateOnly(dateRaw);
   if (!date) return { error: "La fecha no es válida." };
 
+  const amount = Math.round(Number(formData.get("amount")) * 100) / 100;
+  if (!amount || amount <= 0) return { error: "El monto debe ser mayor a 0." };
+
   const transaction = await prisma.transaction.findFirst({
     where: { id: transactionId, userId },
-    select: { kind: true },
+    select: {
+      kind: true,
+      amount: true,
+      loanPrepayment: { select: { id: true } },
+      rouletteOperation: { select: { id: true } },
+    },
   });
   if (!transaction) return { error: "No se pudo actualizar el movimiento." };
+
+  // El monto de un prepago rehace el cronograma y el de una comisión sale del
+  // ruleteo: se cambian desde su pantalla, no desde el gasto.
+  const amountChanged = amount !== Number(transaction.amount);
+  if (amountChanged && transaction.loanPrepayment) {
+    return { error: "Es el gasto de un prepago: cambiá el monto desde el préstamo." };
+  }
+  if (amountChanged && transaction.rouletteOperation) {
+    return { error: "Es la comisión de un ruleteo: cambiá el monto desde el pago de la tarjeta." };
+  }
 
   // La categoría puede cambiar, pero solo a otra del mismo tipo (gasto o ingreso).
   const categoryId = String(formData.get("categoryId") ?? "");
@@ -140,10 +158,14 @@ export async function updateTransaction(
   const receipts = readReceiptUrls(formData);
   if ("error" in receipts) return { error: receipts.error };
 
-  await prisma.transaction.update({
-    where: { id: transactionId },
-    data: { date, categoryId, paymentMethod, reason, description, receiptUrls: receipts.urls },
-  });
+  // Si es el pago de una cuota, el monto pagado de la cuota se mantiene igual al del gasto.
+  await prisma.$transaction([
+    prisma.transaction.update({
+      where: { id: transactionId },
+      data: { date, amount, categoryId, paymentMethod, reason, description, receiptUrls: receipts.urls },
+    }),
+    prisma.scheduledOccurrence.updateMany({ where: { transactionId }, data: { amount } }),
+  ]);
 
   await maybeSaveReason(userId, categoryId, reason, formData);
 

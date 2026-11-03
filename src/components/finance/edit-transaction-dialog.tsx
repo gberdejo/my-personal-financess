@@ -30,6 +30,7 @@ export function EditTransactionDialog({
   transactionId,
   kind,
   currentDate,
+  currentAmount,
   currentCategoryId,
   currentPaymentMethod,
   currentReason,
@@ -42,6 +43,7 @@ export function EditTransactionDialog({
   transactionId: string;
   kind: TransactionKind;
   currentDate: string;
+  currentAmount: number;
   currentCategoryId: string;
   currentPaymentMethod: PaymentMethod | null;
   currentReason: string | null;
@@ -107,12 +109,28 @@ export function EditTransactionDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Editar movimiento</DialogTitle>
-          <DialogDescription>La cuenta y el monto no se pueden modificar.</DialogDescription>
+          <DialogDescription>La cuenta y el tipo no se pueden modificar.</DialogDescription>
         </DialogHeader>
         <form action={formAction} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="edit-tx-date">Fecha</Label>
-            <Input id="edit-tx-date" name="date" type="date" defaultValue={currentDate} required />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="edit-tx-amount">Monto (S/)</Label>
+              <Input
+                id="edit-tx-amount"
+                name="amount"
+                type="number"
+                step="0.01"
+                min="0.01"
+                inputMode="decimal"
+                defaultValue={currentAmount.toFixed(2)}
+                className="tabular-nums"
+                required
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="edit-tx-date">Fecha</Label>
+              <Input id="edit-tx-date" name="date" type="date" defaultValue={currentDate} required />
+            </div>
           </div>
 
           {kind === "EXPENSE" && (

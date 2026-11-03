@@ -226,6 +226,7 @@ function MovementLine({
               transactionId={transaction.id}
               kind={transaction.kind}
               currentDate={toUTCDateInputValue(transaction.date)}
+              currentAmount={transaction.amount}
               currentCategoryId={transaction.categoryId}
               currentPaymentMethod={transaction.paymentMethod}
               currentReason={transaction.reason}

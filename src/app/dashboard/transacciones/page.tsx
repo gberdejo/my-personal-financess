@@ -237,6 +237,7 @@ export default async function TransaccionesPage({ searchParams }: { searchParams
                         transactionId={t.id}
                         kind={t.kind}
                         currentDate={toUTCDateInputValue(t.date)}
+                        currentAmount={t.amount}
                         currentCategoryId={t.categoryId}
                         currentPaymentMethod={t.paymentMethod}
                         currentReason={t.reason}
