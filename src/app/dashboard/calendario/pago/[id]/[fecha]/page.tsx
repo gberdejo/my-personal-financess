@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CardStatementForm } from "@/components/finance/card-statement-form";
@@ -94,6 +94,7 @@ export default async function PagoTarjetaPage({ params }: { params: Promise<{ id
             </div>
             <OccurrenceDialog entry={entry} accounts={accounts}>
               <Button variant={entry.status === "PAID" ? "outline" : "default"}>
+                {entry.cycleChange && <TriangleAlert className="text-amber-600 dark:text-amber-400" />}
                 {entry.status === "PAID" ? "Pagada" : entry.status === "SKIPPED" ? "Omitida" : "Marcar como pagada"}
               </Button>
             </OccurrenceDialog>

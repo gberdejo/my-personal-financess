@@ -2,7 +2,7 @@
 
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -17,7 +17,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PaymentMethodSelect } from "@/components/finance/payment-method-select";
-import { payOccurrence, skipOccurrence, undoOccurrence } from "@/features/schedule/actions";
+import {
+  acknowledgeCardCycleChange,
+  payOccurrence,
+  skipOccurrence,
+  undoOccurrence,
+} from "@/features/schedule/actions";
 import type { CalendarEntry } from "@/features/schedule/queries";
 import { shiftDay, todayInLima, toUTCDateInputValue } from "@/lib/date";
 import { formatCurrency, formatDate, formatTransactionDate } from "@/lib/format";
@@ -80,6 +85,12 @@ export function OccurrenceDialog({
     startTransition(async () => {
       await undoOccurrence(entry.scheduledPaymentId, entry.dueDateValue);
       setOpen(false);
+    });
+  }
+
+  function acknowledge() {
+    startTransition(async () => {
+      await acknowledgeCardCycleChange(entry.scheduledPaymentId, entry.dueDateValue);
     });
   }
 
@@ -164,6 +175,9 @@ export function OccurrenceDialog({
 
         {resolved ? (
           <div className="flex flex-col gap-4">
+            {entry.cycleChange && (
+              <CycleChangeNotice change={entry.cycleChange} pending={otherPending} onAcknowledge={acknowledge} />
+            )}
             <p className="text-sm text-muted-foreground">
               {entry.status === "SKIPPED"
                 ? "Esta cuota se omitió. Al deshacer vuelve a quedar pendiente."
@@ -267,5 +281,36 @@ export function OccurrenceDialog({
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+// La tarjeta se marcó como pagada y después cambiaron los gastos de su ciclo
+// (se editó, agregó o borró un gasto con tarjeta).
+function CycleChangeNotice({
+  change,
+  pending,
+  onAcknowledge,
+}: {
+  change: NonNullable<CalendarEntry["cycleChange"]>;
+  pending: boolean;
+  onAcknowledge: () => void;
+}) {
+  const diff = change.after - change.before;
+  return (
+    <div className="flex flex-col gap-2 rounded-md bg-amber-500/10 px-3 py-2.5 text-sm">
+      <p className="flex items-center gap-1.5 font-medium text-amber-700 dark:text-amber-400">
+        <TriangleAlert className="size-4 shrink-0" />
+        Los gastos del ciclo cambiaron después de marcarla
+      </p>
+      <p className="text-xs text-muted-foreground tabular-nums">
+        Al marcarla sumaban {formatCurrency(change.before)}; ahora suman {formatCurrency(change.after)} (
+        {diff > 0 ? "+" : "−"}
+        {formatCurrency(Math.abs(diff))}). Revisá si lo que pagaste cubre la deuda; si no, deshacé y volvé a marcarla
+        con el monto correcto.
+      </p>
+      <Button variant="outline" size="sm" className="self-end" onClick={onAcknowledge} disabled={pending}>
+        Entendido
+      </Button>
+    </div>
   );
 }

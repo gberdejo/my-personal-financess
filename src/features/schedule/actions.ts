@@ -9,6 +9,7 @@ import { isPaymentMethod, isScheduleFrequency, MONTH_NAMES } from "@/lib/labels"
 import { billingMonth, monthIndex, monthStart, periodsByMonth, ruleBillingMonth } from "@/lib/schedule";
 import type { PaymentMethod, ScheduledPaymentType, ScheduleFrequency } from "@/generated/prisma/client";
 import { freezeRuleMonthsWithData, isDueDateOf, moveDueDate } from "./periods";
+import { getCalendarEntry } from "./queries";
 
 export type ScheduleActionState = { error?: string } | null;
 
@@ -394,8 +395,11 @@ export async function payOccurrence(
   // La tarjeta solo se marca: sus gastos ya están registrados. Lo mismo si el
   // pago ya se cargó en Transacciones (ej. cuotas de un préstamo ya en curso).
   if (payment.type === "CREDIT_CARD" || formData.get("markOnly") === "on") {
+    // En tarjeta se guarda cuánto sumaban sus gastos, para avisar si cambian después.
+    const estimatedAtPayment =
+      payment.type === "CREDIT_CARD" ? ((await getCalendarEntry(payment.id, dueDateValue))?.estimated ?? null) : null;
     await prisma.scheduledOccurrence.create({
-      data: { scheduledPaymentId: payment.id, dueDate, status: "PAID", amount },
+      data: { scheduledPaymentId: payment.id, dueDate, status: "PAID", amount, estimatedAtPayment },
     });
     revalidateSchedule();
     return null;
@@ -448,6 +452,21 @@ export async function skipOccurrence(scheduledPaymentId: string, dueDateValue: s
 
   revalidateSchedule();
   return null;
+}
+
+// La tarjeta ya pagada sigue bien aunque cambiaron los gastos de su ciclo: se
+// toma el total actual como el nuevo punto de partida y deja de avisar.
+export async function acknowledgeCardCycleChange(scheduledPaymentId: string, dueDateValue: string) {
+  await requireUserId();
+
+  const entry = await getCalendarEntry(scheduledPaymentId, dueDateValue);
+  if (!entry || entry.type !== "CREDIT_CARD" || entry.status !== "PAID") return;
+
+  await prisma.scheduledOccurrence.update({
+    where: { scheduledPaymentId_dueDate: { scheduledPaymentId, dueDate: entry.dueDate } },
+    data: { estimatedAtPayment: entry.estimated },
+  });
+  revalidateSchedule();
 }
 
 // Vuelve la cuota a pendiente. Si generó un gasto, se borra el gasto y la cuota

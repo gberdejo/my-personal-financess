@@ -54,6 +54,9 @@ export type CalendarEntry = {
   estimated: number;
   // Solo tarjeta: deuda del estado de cuenta ingresada para este vencimiento.
   statementAmount: number | null;
+  // Solo tarjeta pagada: los gastos con tarjeta del ciclo cambiaron desde que
+  // se marcó (`before` al marcarla, `after` ahora). null si no cambiaron.
+  cycleChange: { before: number; after: number } | null;
   // Solo tarjeta: ruleteos planificados para cubrir este vencimiento.
   roulette: { count: number; received: number; fees: number } | null;
   // Solo préstamo: desglose de la cuota del cronograma.
@@ -181,6 +184,11 @@ async function buildEntries(userId: string, payments: LoadedPayment[], start: Da
             .filter((t) => t.date >= cycle.start && t.date < cycle.end)
             .reduce((sum, t) => sum + Number(t.amount), 0)
         : (loanInstallment?.total ?? Number(payment.amount ?? 0));
+      const before = occurrence?.status === "PAID" && cycle ? occurrence.estimatedAtPayment : null;
+      const cycleChange =
+        before != null && Math.abs(Number(before) - estimated) >= 0.005
+          ? { before: Number(before), after: estimated }
+          : null;
 
       return {
         key: `${payment.id}:${toUTCDateInputValue(dueDate)}`,
@@ -194,6 +202,7 @@ async function buildEntries(userId: string, payments: LoadedPayment[], start: Da
         amount: occurrence?.amount != null ? Number(occurrence.amount) : (statementAmount ?? estimated),
         estimated,
         statementAmount,
+        cycleChange,
         roulette: ops && totals ? { count: ops.length, received: totals.received, fees: totals.fees } : null,
         installment: loanInstallment
           ? {

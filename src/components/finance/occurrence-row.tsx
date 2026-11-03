@@ -1,4 +1,4 @@
-import { Check, Minus } from "lucide-react";
+import { Check, Minus, TriangleAlert } from "lucide-react";
 import { OccurrenceDialog } from "@/components/finance/occurrence-dialog";
 import type { CalendarEntry, OccurrenceStatusView } from "@/features/schedule/queries";
 import { formatCurrency } from "@/lib/format";
@@ -23,6 +23,16 @@ export function OccurrenceStatusMark({ status, className }: { status: Occurrence
       {status === "PAID" && <Check className="size-[60%]" strokeWidth={3} />}
       {status === "SKIPPED" && <Minus className="size-[60%]" strokeWidth={3} />}
     </span>
+  );
+}
+
+// Tarjeta pagada cuyos gastos del ciclo cambiaron después (detalle en el diálogo).
+export function CycleChangeMark({ className }: { className?: string }) {
+  return (
+    <TriangleAlert
+      className={cn("size-3.5 shrink-0 text-amber-600 dark:text-amber-400", className)}
+      aria-label="Los gastos del ciclo cambiaron después de marcarla"
+    />
   );
 }
 
@@ -60,6 +70,7 @@ export function OccurrenceRow({
             <p className="truncate text-sm font-medium">{entry.name}</p>
             <p className="truncate text-xs text-muted-foreground">{detail}</p>
           </div>
+          {entry.cycleChange && <CycleChangeMark />}
           <span className={cn("shrink-0 text-sm font-semibold", occurrenceAmountClass(entry.status))}>
             {formatCurrency(entry.amount)}
           </span>

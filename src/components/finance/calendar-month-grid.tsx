@@ -3,6 +3,7 @@ import { BanknoteArrowDown, Repeat } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { OccurrenceDialog } from "@/components/finance/occurrence-dialog";
 import {
+  CycleChangeMark,
   OccurrenceRow,
   OccurrenceStatusMark,
   occurrenceAmountClass,
@@ -126,8 +127,14 @@ export function CalendarMonthGrid({
                           >
                             {entry.name}
                           </span>
-                          <span className={cn("text-[11px] text-muted-foreground", occurrenceAmountClass(entry.status))}>
+                          <span
+                            className={cn(
+                              "flex items-center gap-1 text-[11px] text-muted-foreground",
+                              occurrenceAmountClass(entry.status)
+                            )}
+                          >
                             {formatCurrency(entry.amount)}
+                            {entry.cycleChange && <CycleChangeMark className="size-3" />}
                           </span>
                         </span>
                       </button>
