@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { FileUp } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -19,6 +21,7 @@ import { getTransactionsForMonth, type PaymentMethodFilter as MethodFilter } fro
 import { parseMonthParam, toUTCDateInputValue } from "@/lib/date";
 import { formatCurrency, formatTransactionDateTime } from "@/lib/format";
 import { isPaymentMethod, NO_PAYMENT_METHOD_LABEL, PAYMENT_METHOD_LABELS } from "@/lib/labels";
+import { IMPORT_SOURCES, isImportSource } from "@/lib/imports/sources";
 import { normalizeReason } from "@/lib/reason";
 
 function parseMethodParam(raw: string | undefined): MethodFilter | null {
@@ -61,6 +64,12 @@ export default async function TransaccionesPage({
         <div className="flex flex-wrap items-center gap-2">
           <MonthNav year={year} month={month} />
           <PaymentMethodFilter value={method} />
+          <Button variant="outline" asChild>
+            <Link href="/dashboard/importaciones">
+              <FileUp />
+              Importar
+            </Link>
+          </Button>
           <TransactionFormDialog
             accounts={accounts}
             incomeCategories={incomeCategories}
@@ -124,6 +133,17 @@ export default async function TransaccionesPage({
                         de {t.budget.title}
                       </Link>
                     )}
+                    {t.imports.map((item) => (
+                      <Link
+                        key={item.importId}
+                        href={`/dashboard/importaciones/${item.importId}?estado=aplicados`}
+                        className="flex items-center gap-1 truncate text-xs text-muted-foreground hover:text-foreground hover:underline"
+                      >
+                        <FileUp className="size-3 shrink-0" />
+                        {item.created ? "importado de" : "vinculado a"}{" "}
+                        {isImportSource(item.source) ? IMPORT_SOURCES[item.source].label : item.source}
+                      </Link>
+                    ))}
                   </TableCell>
                   <TableCell>
                     {t.categoryName}

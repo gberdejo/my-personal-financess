@@ -45,6 +45,25 @@ const transactionTimeFormatter = new Intl.DateTimeFormat("es-PE", {
   timeZone: "America/Lima",
 });
 
+// Hora de un instante real en Lima ("07:33").
+export function formatLimaTime(instant: Date) {
+  return transactionTimeFormatter.format(instant);
+}
+
+const limaDateTimeFormatter = new Intl.DateTimeFormat("es-PE", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  timeZone: "America/Lima",
+});
+
+// Fecha y hora de un instante real en Lima ("03 nov. 2026, 09:15").
+export function formatLimaDateTime(instant: Date) {
+  return limaDateTimeFormatter.format(instant);
+}
+
 export function formatTransactionDateTime(date: Date, createdAt: Date) {
   return `${formatTransactionDate(date)} ${transactionTimeFormatter.format(createdAt)}`;
 }

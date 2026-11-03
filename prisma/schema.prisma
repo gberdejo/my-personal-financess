@@ -70,9 +70,10 @@ model Account {
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
-  transactions      Transaction[]
-  budgets           Budget[]
-  scheduledPayments ScheduledPayment[]
+  transactions       Transaction[]
+  budgets            Budget[]
+  scheduledPayments  ScheduledPayment[]
+  transactionImports TransactionImport[]
 
   @@index([userId])
 }
@@ -126,12 +127,14 @@ model Transaction {
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
-  account    Account     @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  category   Category    @relation(fields: [categoryId], references: [id])
+  account             Account              @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  category            Category             @relation(fields: [categoryId], references: [id])
   budgetItem          BudgetItem?
   scheduledOccurrence ScheduledOccurrence?
   rouletteOperation   RouletteOperation?
   loanPrepayment      LoanPrepayment?
+  // Movimientos importados (Yape, estados de cuenta) que la crearon o se vincularon a ella.
+  importedMovements   ImportedMovement[]
 
   @@index([userId, date])
   @@index([accountId])
@@ -379,4 +382,69 @@ model LoanPrepayment {
   transaction      Transaction?     @relation(fields: [transactionId], references: [id], onDelete: SetNull)
 
   @@index([scheduledPaymentId, date])
+}
+
+// Un archivo importado (reporte de Yape, estado de cuenta, …). Sus movimientos
+// quedan cargados y el usuario elige cuáles se vuelven transacciones.
+model TransactionImport {
+  id            String         @id @default(cuid())
+  userId        String
+  // "YAPE" (ImportSource en src/lib/imports/sources.ts).
+  source        String
+  fileName      String
+  // Cuenta por defecto al aplicar los movimientos.
+  accountId     String?
+  // Primer y último día de los movimientos.
+  periodStart   DateTime?
+  periodEnd     DateTime?
+  // Movimientos del archivo que ya estaban en otra importación (no se cargan).
+  skippedCount  Int            @default(0)
+  // Método de pago de los gastos si la fuente no lo fija (plantilla genérica).
+  paymentMethod PaymentMethod?
+  createdAt     DateTime       @default(now())
+
+  account   Account?           @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  movements ImportedMovement[]
+
+  @@index([userId, createdAt])
+}
+
+// Un movimiento del archivo importado. Aplicado = tiene transactionId; borrar
+// esa transacción lo devuelve a pendiente (SetNull). Varios movimientos pueden
+// apuntar a la misma transacción (el mismo Yape en el estado de cuenta del banco).
+model ImportedMovement {
+  id                 String          @id @default(cuid())
+  userId             String
+  importId           String
+  // Fila del archivo.
+  row                Int
+  // Instante real de la operación.
+  occurredAt         DateTime
+  // Día calendario (medianoche UTC, igual que Transaction.date).
+  date               DateTime
+  kind               TransactionKind
+  amount             Decimal         @db.Decimal(12, 2)
+  counterparty       String?
+  message            String?
+  // Tipo tal como viene en el archivo ("PAGASTE", "TE PAGÓ").
+  rawType            String
+  // Lo que trae la plantilla genérica para proponer al aplicar: nombre de la
+  // categoría, motivo y método de pago (este gana sobre el de la importación).
+  categoryName       String?
+  reason             String?
+  paymentMethod      PaymentMethod?
+  // Identifica el mismo movimiento en otra importación.
+  fingerprint        String
+  discarded          Boolean         @default(false)
+  transactionId      String?
+  // true: la transacción la creó este movimiento (quitarlo la borra).
+  // false: se vinculó a una existente (quitarlo solo desvincula).
+  createdTransaction Boolean         @default(false)
+
+  import      TransactionImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  transaction Transaction?      @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@index([importId])
+  @@index([userId, fingerprint])
+  @@index([transactionId])
 }

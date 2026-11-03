@@ -1,4 +1,5 @@
 import { parseDateOnly } from "@/lib/date";
+import { normalizeHeader } from "@/lib/imports/text";
 import { clampedDate } from "@/lib/schedule";
 
 // Cronograma de un préstamo en CSV: la plantilla que descargan los usuarios y el
@@ -88,15 +89,6 @@ export type ParsedLoanCsv = {
 
 function round2(value: number) {
   return Math.round(value * 100) / 100;
-}
-
-function normalizeHeader(text: string) {
-  return text
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
 }
 
 function fieldFor(header: string): Field | null {

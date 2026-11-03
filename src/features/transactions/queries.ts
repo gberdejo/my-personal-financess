@@ -21,6 +21,10 @@ export async function getTransactionsForMonth(year: number, month: number, metho
       account: true,
       category: true,
       budgetItem: { select: { budget: { select: { id: true, title: true } } } },
+      importedMovements: {
+        select: { importId: true, createdTransaction: true, import: { select: { source: true } } },
+        orderBy: { occurredAt: "asc" },
+      },
     },
     orderBy: [{ date: "desc" }, { createdAt: "desc" }],
   });
@@ -39,5 +43,11 @@ export async function getTransactionsForMonth(year: number, month: number, metho
     categoryId: t.categoryId,
     categoryName: t.category.name,
     budget: t.budgetItem?.budget ?? null,
+    // Importaciones de donde viene (o a las que se vinculó) esta transacción.
+    imports: t.importedMovements.map((m) => ({
+      importId: m.importId,
+      source: m.import.source,
+      created: m.createdTransaction,
+    })),
   }));
 }

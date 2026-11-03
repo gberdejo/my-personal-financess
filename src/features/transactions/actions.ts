@@ -20,6 +20,8 @@ function revalidateAll() {
   revalidatePath("/dashboard/prestamos", "layout");
   // Borrar un gasto aplicado desde un presupuesto devuelve su línea a pendiente.
   revalidatePath("/dashboard/presupuestos", "layout");
+  // Borrar una transacción importada devuelve su movimiento a pendiente.
+  revalidatePath("/dashboard/importaciones", "layout");
 }
 
 function readPaymentMethod(formData: FormData): PaymentMethod | null {

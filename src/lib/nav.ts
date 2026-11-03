@@ -1,5 +1,14 @@
 import type { LucideIcon } from "lucide-react";
-import { ArrowLeftRight, CalendarDays, HandCoins, LayoutDashboard, PiggyBank, Tags, Wallet } from "lucide-react";
+import {
+  ArrowLeftRight,
+  CalendarDays,
+  FileUp,
+  HandCoins,
+  LayoutDashboard,
+  PiggyBank,
+  Tags,
+  Wallet,
+} from "lucide-react";
 
 export interface NavItem {
   title: string;
@@ -10,6 +19,7 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { title: "Resumen", url: "/dashboard", icon: LayoutDashboard },
   { title: "Transacciones", url: "/dashboard/transacciones", icon: ArrowLeftRight },
+  { title: "Importaciones", url: "/dashboard/importaciones", icon: FileUp },
   { title: "Calendario", url: "/dashboard/calendario", icon: CalendarDays },
   { title: "Préstamos", url: "/dashboard/prestamos", icon: HandCoins },
   { title: "Presupuestos", url: "/dashboard/presupuestos", icon: PiggyBank },

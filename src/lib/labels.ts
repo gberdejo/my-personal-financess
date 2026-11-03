@@ -99,3 +99,10 @@ export const PREPAYMENT_MODE_LABELS: Record<"TERM" | "INSTALLMENT", string> = {
   TERM: "Reducir plazo",
   INSTALLMENT: "Reducir cuota",
 };
+
+// Movimientos importados (Yape, estados de cuenta).
+export const MOVEMENT_STATUS_LABELS: Record<"PENDING" | "APPLIED" | "DISCARDED", string> = {
+  PENDING: "Pendiente",
+  APPLIED: "Aplicado",
+  DISCARDED: "Descartado",
+};

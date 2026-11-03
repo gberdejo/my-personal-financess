@@ -1,0 +1,5 @@
+﻿fecha,hora,tipo,monto,contraparte,descripcion,categoria,motivo,metodo_pago
+03/11/2026,08:30,gasto,12.50,Bodega Don Lucho,Pan y leche,Alimentación,Desayuno,efectivo
+03/11/2026,13:15,gasto,35.90,Restaurante El Sabor,,Alimentación,Almuerzo,tarjeta de débito
+04/11/2026,,ingreso,1500.00,Empresa SAC,Pago noviembre,Sueldo,Sueldo,
+05/11/2026,19:40,gasto,8.00,,Taxi a casa,,,
