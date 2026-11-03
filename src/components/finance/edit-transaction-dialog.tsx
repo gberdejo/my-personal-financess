@@ -17,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { CategoryCombobox } from "@/components/finance/category-combobox";
 import { PaymentMethodSelect } from "@/components/finance/payment-method-select";
+import { ReceiptLinksField } from "@/components/finance/receipt-links-field";
 import { ReasonField } from "@/components/finance/reason-field";
 import { useCreateCategory } from "@/components/finance/use-create-category";
 import { updateTransaction } from "@/features/transactions/actions";
@@ -33,6 +34,7 @@ export function EditTransactionDialog({
   currentPaymentMethod,
   currentReason,
   currentDescription,
+  currentReceiptUrls,
   categories: initialCategories,
   frequentCategoryIds,
   reasonSuggestions,
@@ -44,6 +46,7 @@ export function EditTransactionDialog({
   currentPaymentMethod: PaymentMethod | null;
   currentReason: string | null;
   currentDescription: string | null;
+  currentReceiptUrls: string[];
   // Las del mismo tipo que el movimiento: no se puede pasar de gasto a ingreso.
   categories: CategoryOption[];
   frequentCategoryIds: string[];
@@ -149,6 +152,8 @@ export function EditTransactionDialog({
               rows={2}
             />
           </div>
+
+          <ReceiptLinksField id="edit-tx-receipts" defaultValue={currentReceiptUrls} />
 
           {state?.error && <p className="text-sm text-destructive">{state.error}</p>}
 

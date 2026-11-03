@@ -27,6 +27,7 @@ import { CategoryCombobox } from "@/components/finance/category-combobox";
 import { ReasonField } from "@/components/finance/reason-field";
 import { useCreateCategory } from "@/components/finance/use-create-category";
 import { PaymentMethodSelect } from "@/components/finance/payment-method-select";
+import { ReceiptLinksField } from "@/components/finance/receipt-links-field";
 import { createTransaction } from "@/features/transactions/actions";
 import type { ReasonSuggestion } from "@/features/categories/queries";
 import type { TransactionKind } from "@/generated/prisma/client";
@@ -201,6 +202,8 @@ export function TransactionFormDialog({
               rows={2}
             />
           </div>
+
+          <ReceiptLinksField id="tx-receipts" />
 
           {state?.error && <p className="text-sm text-destructive">{state.error}</p>}
 

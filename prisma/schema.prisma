@@ -124,6 +124,8 @@ model Transaction {
   date          DateTime
   // Solo gastos. Null en ingresos y en gastos anteriores a este campo.
   paymentMethod PaymentMethod?
+  // Links a los comprobantes (fotos o PDF en Google Drive u otro sitio). No se guardan archivos.
+  receiptUrls   String[]        @default([])
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
@@ -433,6 +435,8 @@ model ImportedMovement {
   categoryName       String?
   reason             String?
   paymentMethod      PaymentMethod?
+  // Links a comprobantes que trae la plantilla; pasan a la transacción al aplicar.
+  receiptUrls        String[]        @default([])
   // Identifica el mismo movimiento en otra importación.
   fingerprint        String
   discarded          Boolean         @default(false)

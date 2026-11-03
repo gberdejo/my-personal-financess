@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CategoryCombobox } from "@/components/finance/category-combobox";
 import { ReasonCombobox } from "@/components/finance/reason-combobox";
+import { ReceiptsDialog } from "@/components/finance/receipts-dialog";
 import { useCreateCategory } from "@/components/finance/use-create-category";
 import { applyMovements, linkMovement, setMovementsDiscarded } from "@/features/imports/actions";
 import type { ReasonSuggestion } from "@/features/categories/queries";
@@ -272,8 +273,11 @@ function MovementRow({
           </span>
           {movement.message}
         </p>
-        {movement.paymentMethod && (
-          <p className="mt-0.5 text-xs text-muted-foreground">{PAYMENT_METHOD_LABELS[movement.paymentMethod]}</p>
+        {(movement.paymentMethod || movement.receiptUrls.length > 0) && (
+          <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+            {movement.paymentMethod && <span>{PAYMENT_METHOD_LABELS[movement.paymentMethod]}</span>}
+            <ReceiptsDialog urls={movement.receiptUrls} title={movement.counterparty ?? undefined} />
+          </div>
         )}
         {movement.missingCategory && !draft.categoryId && (
           <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-400">

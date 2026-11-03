@@ -29,7 +29,7 @@ export const IMPORT_SOURCES: Record<ImportSource, SourceDefinition> = {
   GENERIC: {
     label: "Plantilla genérica",
     accept: ".csv,.xlsx,.xls",
-    help: "Descargá la plantilla, copiá tus movimientos (fecha, tipo y monto; lo demás es opcional) y subila en CSV o Excel.",
+    help: "Descargá la plantilla, copiá tus movimientos (fecha, tipo y monto; lo demás es opcional, incluso links de comprobantes en Drive) y subila en CSV o Excel.",
     template: "/plantillas/movimientos.csv",
     paymentMethod: null,
     parse: parseGeneric,

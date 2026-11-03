@@ -12,6 +12,7 @@ import {
 import { MonthNav } from "@/components/finance/month-nav";
 import { ConfirmDeleteButton } from "@/components/finance/confirm-delete-button";
 import { EditTransactionDialog } from "@/components/finance/edit-transaction-dialog";
+import { ReceiptsDialog } from "@/components/finance/receipts-dialog";
 import { PaymentMethodFilter } from "@/components/finance/payment-method-filter";
 import { TransactionFormDialog } from "@/components/finance/transaction-form-dialog";
 import { getAccounts } from "@/features/accounts/queries";
@@ -99,7 +100,7 @@ export default async function TransaccionesPage({
             <TableHead className="hidden sm:table-cell">Cuenta</TableHead>
             <TableHead className="hidden md:table-cell">Método</TableHead>
             <TableHead className="text-right">Monto</TableHead>
-            <TableHead className="w-20" />
+            <TableHead className="w-28" />
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -173,6 +174,7 @@ export default async function TransaccionesPage({
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center justify-end">
+                      <ReceiptsDialog urls={t.receiptUrls} title={t.reason ?? t.description ?? undefined} />
                       <EditTransactionDialog
                         transactionId={t.id}
                         kind={t.kind}
@@ -181,6 +183,7 @@ export default async function TransaccionesPage({
                         currentPaymentMethod={t.paymentMethod}
                         currentReason={t.reason}
                         currentDescription={t.description}
+                        currentReceiptUrls={t.receiptUrls}
                         categories={t.kind === "INCOME" ? incomeCategories : expenseCategories}
                         frequentCategoryIds={frequentCategoryIds}
                         reasonSuggestions={reasonSuggestions}

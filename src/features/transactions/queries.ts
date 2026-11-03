@@ -43,6 +43,7 @@ export async function getTransactionsForMonth(year: number, month: number, metho
     categoryId: t.categoryId,
     categoryName: t.category.name,
     budget: t.budgetItem?.budget ?? null,
+    receiptUrls: t.receiptUrls,
     // Importaciones de donde viene (o a las que se vinculó) esta transacción.
     imports: t.importedMovements.map((m) => ({
       importId: m.importId,

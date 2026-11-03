@@ -16,6 +16,7 @@ export type ParsedMovement = {
   categoryName?: string | null;
   reason?: string | null;
   paymentMethod?: PaymentMethod | null;
+  receiptUrls?: string[];
 };
 
 export type ImportIssue = { row: number | null; message: string };

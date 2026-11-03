@@ -99,8 +99,9 @@ export type ImportedMovementRow = {
   // Categoría y motivo propuestos para aplicarlo.
   suggestion: { categoryId: string | null; reason: string };
   missingCategory: string | null;
-  // Método de pago que trae la fila (plantilla genérica).
+  // Método de pago y comprobantes que trae la fila (plantilla genérica).
   paymentMethod: PaymentMethod | null;
+  receiptUrls: string[];
   duplicates: DuplicateCandidate[];
   // Fecha de otra importación que ya trajo este mismo movimiento.
   alsoImportedAt: Date | null;
@@ -250,6 +251,7 @@ export async function getImport(importId: string): Promise<ImportDetail | null> 
       // Categoría del archivo que no existe (para avisar y poder crearla).
       missingCategory: m.categoryName && !fileCategoryId ? m.categoryName : null,
       paymentMethod: m.paymentMethod,
+      receiptUrls: m.receiptUrls,
       duplicates:
         status === "PENDING"
           ? others

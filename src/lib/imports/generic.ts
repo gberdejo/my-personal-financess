@@ -1,10 +1,11 @@
 import type { PaymentMethod, TransactionKind } from "@/generated/prisma/client";
 import { normalizeHeader, parseLimaDateTime, parsePlainAmount } from "@/lib/imports/text";
 import type { ImportIssue, ParsedImport, ParsedMovement } from "@/lib/imports/types";
+import { parseReceiptUrls, receiptUrlsError } from "@/lib/receipts";
 
 // Plantilla genérica de movimientos (public/plantillas/movimientos.csv), para
 // cargar lo de cualquier banco o app copiándolo en ella. Encabezado:
-// fecha | hora | tipo | monto | contraparte | descripcion | categoria | motivo | metodo_pago
+// fecha | hora | tipo | monto | contraparte | descripcion | categoria | motivo | metodo_pago | comprobantes
 // Obligatorios: fecha y monto. Sin "tipo", un monto negativo es gasto.
 
 type Column =
@@ -16,7 +17,8 @@ type Column =
   | "description"
   | "category"
   | "reason"
-  | "paymentMethod";
+  | "paymentMethod"
+  | "receipts";
 
 const HEADERS: Record<Column, string[]> = {
   date: ["fecha", "fecha de operacion", "fecha operacion"],
@@ -28,6 +30,7 @@ const HEADERS: Record<Column, string[]> = {
   category: ["categoria"],
   reason: ["motivo"],
   paymentMethod: ["metodo pago", "metodo de pago", "metodo"],
+  receipts: ["comprobantes", "comprobante", "links", "link"],
 };
 
 const TYPES: Record<string, TransactionKind> = {
@@ -134,6 +137,13 @@ export function parseGeneric(rows: string[][]): ParsedImport {
       continue;
     }
 
+    const receipts = parseReceiptUrls(cell(cells, "receipts"));
+    const receiptsError = receiptUrlsError(receipts);
+    if (receiptsError) {
+      errors.push({ row, message: receiptsError });
+      continue;
+    }
+
     movements.push({
       row,
       occurredAt: when.occurredAt,
@@ -146,6 +156,7 @@ export function parseGeneric(rows: string[][]): ParsedImport {
       categoryName: cell(cells, "category") || null,
       reason: cell(cells, "reason") || null,
       paymentMethod: kind === "EXPENSE" ? paymentMethod : null,
+      receiptUrls: receipts.urls,
     });
   }
 

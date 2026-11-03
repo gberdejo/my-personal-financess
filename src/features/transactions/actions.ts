@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/auth";
 import { parseDateOnly } from "@/lib/date";
 import { isPaymentMethod } from "@/lib/labels";
+import { parseReceiptUrls, receiptUrlsError } from "@/lib/receipts";
 import { saveCategoryReason } from "@/features/categories/reasons";
 import type { PaymentMethod, TransactionKind } from "@/generated/prisma/client";
 
@@ -32,6 +33,13 @@ function readPaymentMethod(formData: FormData): PaymentMethod | null {
 // Motivo (con sugerencias) y descripción (nota libre) son opcionales.
 function readText(formData: FormData, field: string) {
   return String(formData.get(field) ?? "").trim() || null;
+}
+
+// Links a comprobantes (uno por línea). `error` si alguno no es un link válido.
+function readReceiptUrls(formData: FormData): { urls: string[] } | { error: string } {
+  const parsed = parseReceiptUrls(String(formData.get("receiptUrls") ?? ""));
+  const error = receiptUrlsError(parsed);
+  return error ? { error } : { urls: parsed.urls };
 }
 
 // Reutilizar el motivo ayuda a que los gastos recurrentes coincidan. Si ya
@@ -64,6 +72,8 @@ export async function createTransaction(_prevState: ActionState, formData: FormD
 
   const date = parseDateOnly(dateRaw);
   if (!date) return { error: "La fecha no es válida." };
+  const receipts = readReceiptUrls(formData);
+  if ("error" in receipts) return { error: receipts.error };
 
   const account = await prisma.account.findFirst({ where: { id: accountId, userId } });
   if (!account) return { error: "Cuenta inválida." };
@@ -74,7 +84,18 @@ export async function createTransaction(_prevState: ActionState, formData: FormD
   if (!category) return { error: "Categoría inválida." };
 
   await prisma.transaction.create({
-    data: { userId, accountId, categoryId, kind, amount, reason, description, date, paymentMethod },
+    data: {
+      userId,
+      accountId,
+      categoryId,
+      kind,
+      amount,
+      reason,
+      description,
+      date,
+      paymentMethod,
+      receiptUrls: receipts.urls,
+    },
   });
 
   await maybeSaveReason(userId, categoryId, reason, formData);
@@ -116,10 +137,12 @@ export async function updateTransaction(
 
   const reason = readText(formData, "reason");
   const description = readText(formData, "description");
+  const receipts = readReceiptUrls(formData);
+  if ("error" in receipts) return { error: receipts.error };
 
   await prisma.transaction.update({
     where: { id: transactionId },
-    data: { date, categoryId, paymentMethod, reason, description },
+    data: { date, categoryId, paymentMethod, reason, description, receiptUrls: receipts.urls },
   });
 
   await maybeSaveReason(userId, categoryId, reason, formData);

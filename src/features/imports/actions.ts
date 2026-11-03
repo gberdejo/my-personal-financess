@@ -108,6 +108,7 @@ export async function createImport(_prevState: ImportActionState, formData: Form
             categoryName: m.categoryName ?? null,
             reason: m.reason ?? null,
             paymentMethod: m.paymentMethod ?? null,
+            receiptUrls: m.receiptUrls ?? [],
           })),
         },
       },
@@ -203,6 +204,7 @@ export async function applyMovements(
           // La hora que se muestra en Transacciones es la de la operación.
           createdAt: movement.occurredAt,
           paymentMethod: methodOf(movement),
+          receiptUrls: movement.receiptUrls,
         },
       });
       await tx.importedMovement.update({
