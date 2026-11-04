@@ -158,7 +158,7 @@ function parseDate(raw: string) {
   const iso = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
   const local = text.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
   const [year, month, day] = iso ? [iso[1], iso[2], iso[3]] : local ? [local[3], local[2], local[1]] : [];
-  if (!year) return null;
+  if (!year || !month || !day) return null;
   const date = parseDateOnly(`${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`);
   // Algunos navegadores convierten el 31/02 en el 03/03: se rechaza.
   return date && date.getUTCDate() === Number(day) ? date : null;

@@ -3,7 +3,7 @@ import { requireUserId } from "@/lib/auth";
 import { shiftDay } from "@/lib/date";
 import { counterpartyKey, isImportSource, type ImportSource } from "@/lib/imports/sources";
 import { normalizeReason } from "@/lib/reason";
-import { amountLockInfo } from "@/lib/transaction-lock";
+import { amountLockInfo, type AmountLock } from "@/lib/transaction-lock";
 import { getReasonSuggestions } from "@/features/categories/queries";
 import type { PaymentMethod, TransactionKind } from "@/generated/prisma/client";
 
@@ -94,6 +94,8 @@ export type ImportedMovementRow = {
     id: string;
     kind: TransactionKind;
     date: Date;
+    // Puede diferir del monto del archivo si se editó la transacción.
+    amount: number;
     categoryId: string;
     categoryName: string;
     accountName: string;
@@ -101,6 +103,7 @@ export type ImportedMovementRow = {
     description: string | null;
     paymentMethod: PaymentMethod | null;
     receiptUrls: string[];
+    amountLock: { kind: AmountLock; href: string } | null;
     // true si la creó este movimiento; false si se vinculó a una existente.
     created: boolean;
   } | null;
