@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/auth";
+import { amountLockInfo } from "@/lib/transaction-lock";
 import type { PaymentMethod } from "@/generated/prisma/client";
 
 // "NONE" son los gastos sin método de pago (registrados antes de existir el campo).
@@ -25,6 +26,8 @@ export async function getTransactionsForRange(
       account: true,
       category: true,
       budgetItem: { select: { budget: { select: { id: true, title: true } } } },
+      loanPrepayment: { select: { scheduledPaymentId: true } },
+      rouletteOperation: { select: { scheduledPaymentId: true, dueDate: true } },
       importedMovements: {
         select: { importId: true, createdTransaction: true, import: { select: { source: true } } },
         orderBy: { occurredAt: "asc" },
@@ -48,6 +51,7 @@ export async function getTransactionsForRange(
     categoryName: t.category.name,
     budget: t.budgetItem?.budget ?? null,
     receiptUrls: t.receiptUrls,
+    amountLock: amountLockInfo(t),
     // Importaciones de donde viene (o a las que se vinculó) esta transacción.
     imports: t.importedMovements.map((m) => ({
       importId: m.importId,

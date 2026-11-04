@@ -1,7 +1,8 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState } from "react";
-import { Pencil } from "lucide-react";
+import Link from "next/link";
+import { Lock, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -21,6 +22,8 @@ import { ReceiptLinksField } from "@/components/finance/receipt-links-field";
 import { ReasonField } from "@/components/finance/reason-field";
 import { useCreateCategory } from "@/components/finance/use-create-category";
 import { updateTransaction } from "@/features/transactions/actions";
+import { formatCurrency } from "@/lib/format";
+import { AMOUNT_LOCK_LABELS, type AmountLock } from "@/lib/transaction-lock";
 import type { ReasonSuggestion } from "@/features/categories/queries";
 import type { PaymentMethod, TransactionKind } from "@/generated/prisma/client";
 
@@ -31,6 +34,7 @@ export function EditTransactionDialog({
   kind,
   currentDate,
   currentAmount,
+  amountLock,
   currentCategoryId,
   currentPaymentMethod,
   currentReason,
@@ -44,6 +48,8 @@ export function EditTransactionDialog({
   kind: TransactionKind;
   currentDate: string;
   currentAmount: number;
+  // Gasto de un prepago o comisión de ruleteo: el monto se ve pero no se edita.
+  amountLock: { kind: AmountLock; href: string } | null;
   currentCategoryId: string;
   currentPaymentMethod: PaymentMethod | null;
   currentReason: string | null;
@@ -115,23 +121,41 @@ export function EditTransactionDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-2">
               <Label htmlFor="edit-tx-amount">Monto (S/)</Label>
-              <Input
-                id="edit-tx-amount"
-                name="amount"
-                type="number"
-                step="0.01"
-                min="0.01"
-                inputMode="decimal"
-                defaultValue={currentAmount.toFixed(2)}
-                className="tabular-nums"
-                required
-              />
+              {amountLock ? (
+                <p
+                  id="edit-tx-amount"
+                  className="flex h-8 items-center gap-1.5 rounded-lg border border-input bg-muted/60 px-2.5 text-sm tabular-nums"
+                >
+                  <Lock className="size-3.5 text-muted-foreground" />
+                  {formatCurrency(currentAmount)}
+                </p>
+              ) : (
+                <Input
+                  id="edit-tx-amount"
+                  name="amount"
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  inputMode="decimal"
+                  defaultValue={currentAmount.toFixed(2)}
+                  className="tabular-nums"
+                  required
+                />
+              )}
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="edit-tx-date">Fecha</Label>
               <Input id="edit-tx-date" name="date" type="date" defaultValue={currentDate} required />
             </div>
           </div>
+          {amountLock && (
+            <p className="-mt-2 text-xs text-muted-foreground">
+              {AMOUNT_LOCK_LABELS[amountLock.kind]}{" "}
+              <Link href={amountLock.href} className="font-medium text-primary hover:underline">
+                Ir ahí
+              </Link>
+            </p>
+          )}
 
           {kind === "EXPENSE" && (
             <PaymentMethodSelect id="edit-tx-payment-method" defaultValue={currentPaymentMethod} />

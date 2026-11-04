@@ -3,6 +3,7 @@ import { requireUserId } from "@/lib/auth";
 import { shiftDay } from "@/lib/date";
 import { counterpartyKey, isImportSource, type ImportSource } from "@/lib/imports/sources";
 import { normalizeReason } from "@/lib/reason";
+import { amountLockInfo } from "@/lib/transaction-lock";
 import { getReasonSuggestions } from "@/features/categories/queries";
 import type { PaymentMethod, TransactionKind } from "@/generated/prisma/client";
 
@@ -183,6 +184,8 @@ export async function getImport(importId: string): Promise<ImportDetail | null> 
               receiptUrls: true,
               category: { select: { name: true } },
               account: { select: { name: true } },
+              loanPrepayment: { select: { scheduledPaymentId: true } },
+              rouletteOperation: { select: { scheduledPaymentId: true, dueDate: true } },
             },
           },
         },
@@ -265,6 +268,7 @@ export async function getImport(importId: string): Promise<ImportDetail | null> 
             description: m.transaction.description,
             paymentMethod: m.transaction.paymentMethod,
             receiptUrls: m.transaction.receiptUrls,
+            amountLock: amountLockInfo(m.transaction),
             created: m.createdTransaction,
           }
         : null,
