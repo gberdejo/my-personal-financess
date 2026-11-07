@@ -1,5 +1,4 @@
 import type {
-  AccountType,
   BudgetTemplate,
   PaymentMethod,
   ScheduledPaymentType,
@@ -7,12 +6,8 @@ import type {
   TransactionKind,
 } from "@/generated/prisma/client";
 
-export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
-  CASH: "Efectivo",
-  BANK: "Banco",
-  CREDIT_CARD: "Tarjeta de crédito",
-  INVESTMENT: "Inversión",
-};
+// Toda cuenta es una cuenta de ahorro; tarjeta, Yape, efectivo, etc. son métodos de pago.
+export const ACCOUNT_LABEL = "Cuenta de ahorro";
 
 export const TRANSACTION_KIND_LABELS: Record<TransactionKind, string> = {
   INCOME: "Ingreso",

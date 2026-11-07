@@ -7,13 +7,6 @@ datasource db {
   provider = "postgresql"
 }
 
-enum AccountType {
-  CASH
-  BANK
-  CREDIT_CARD
-  INVESTMENT
-}
-
 enum TransactionKind {
   INCOME
   EXPENSE
@@ -61,14 +54,15 @@ enum BudgetTemplate {
   BLANK
 }
 
+// Toda cuenta es una cuenta de ahorro: de ahí sale y ahí entra la plata.
+// Tarjeta, Yape, efectivo, etc. son métodos de pago del gasto, no cuentas.
 model Account {
-  id             String      @id @default(cuid())
+  id             String   @id @default(cuid())
   userId         String
   name           String
-  type           AccountType
-  initialBalance Decimal     @default(0) @db.Decimal(12, 2)
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  initialBalance Decimal  @default(0) @db.Decimal(12, 2)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   transactions       Transaction[]
   budgets            Budget[]

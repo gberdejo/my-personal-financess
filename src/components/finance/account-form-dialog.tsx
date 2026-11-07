@@ -14,15 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { createAccount } from "@/features/accounts/actions";
-import { ACCOUNT_TYPE_LABELS } from "@/lib/labels";
 
 export function AccountFormDialog() {
   const [open, setOpen] = useState(false);
@@ -43,33 +35,21 @@ export function AccountFormDialog() {
       <DialogTrigger asChild>
         <Button>
           <Plus />
-          Agregar cuenta
+          Agregar cuenta de ahorro
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Nueva cuenta</DialogTitle>
-          <DialogDescription>Efectivo, banco, tarjeta de crédito o inversión.</DialogDescription>
+          <DialogTitle>Nueva cuenta de ahorro</DialogTitle>
+          <DialogDescription>
+            Todos los movimientos salen o entran de una cuenta de ahorro. La tarjeta, Yape o efectivo se
+            eligen como método de pago en cada gasto.
+          </DialogDescription>
         </DialogHeader>
         <form ref={formRef} action={formAction} className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
             <Label htmlFor="account-name">Nombre</Label>
             <Input id="account-name" name="name" placeholder="Ej. BCP Cuenta Sueldo" required />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="account-type">Tipo</Label>
-            <Select name="type" defaultValue="BANK" required>
-              <SelectTrigger id="account-type" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(ACCOUNT_TYPE_LABELS).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="account-initial-balance">Saldo inicial (S/)</Label>

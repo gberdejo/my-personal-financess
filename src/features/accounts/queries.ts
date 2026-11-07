@@ -19,7 +19,6 @@ export async function getAccountsWithBalance() {
     return {
       id: account.id,
       name: account.name,
-      type: account.type,
       initialBalance: Number(account.initialBalance),
       balance: Number(account.initialBalance) + delta,
     };

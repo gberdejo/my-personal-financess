@@ -4,7 +4,7 @@ import { ConfirmDeleteButton } from "@/components/finance/confirm-delete-button"
 import { deleteAccount } from "@/features/accounts/actions";
 import { getAccountsWithBalance } from "@/features/accounts/queries";
 import { formatCurrency } from "@/lib/format";
-import { ACCOUNT_TYPE_LABELS } from "@/lib/labels";
+import { ACCOUNT_LABEL } from "@/lib/labels";
 
 export default async function CuentasPage() {
   const accounts = await getAccountsWithBalance();
@@ -21,7 +21,7 @@ export default async function CuentasPage() {
           <CardHeader>
             <CardTitle>Sin cuentas todavía</CardTitle>
             <CardDescription>
-              Agregá una cuenta (efectivo, banco, tarjeta) para empezar a registrar movimientos.
+              Agregá una cuenta de ahorro para empezar a registrar movimientos.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -31,7 +31,7 @@ export default async function CuentasPage() {
             <Card key={account.id}>
               <CardHeader className="flex flex-row items-start justify-between gap-2">
                 <div>
-                  <CardDescription>{ACCOUNT_TYPE_LABELS[account.type]}</CardDescription>
+                  <CardDescription>{ACCOUNT_LABEL}</CardDescription>
                   <CardTitle className="text-lg">{account.name}</CardTitle>
                 </div>
                 <ConfirmDeleteButton
