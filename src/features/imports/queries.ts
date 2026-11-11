@@ -6,6 +6,7 @@ import { normalizeReason } from "@/lib/reason";
 import { amountLockInfo, type AmountLock } from "@/lib/transaction-lock";
 import { getReasonSuggestions } from "@/features/categories/queries";
 import type { PaymentMethod, TransactionKind } from "@/generated/prisma/client";
+import type { MovementKind } from "@/lib/labels";
 
 // PENDING: cargado, sin transacción. APPLIED: tiene transacción. DISCARDED: no se va a aplicar.
 export type MovementStatus = "PENDING" | "APPLIED" | "DISCARDED";
@@ -73,7 +74,7 @@ export type DuplicateCandidate = {
   createdAt: Date;
   amount: number;
   categoryName: string;
-  accountName: string;
+  accountName: string | null;
   reason: string | null;
   description: string | null;
 };
@@ -83,7 +84,8 @@ export type ImportedMovementRow = {
   row: number;
   occurredAt: Date;
   date: Date;
-  kind: TransactionKind;
+  // Un movimiento importado es siempre ingreso o gasto.
+  kind: MovementKind;
   amount: number;
   counterparty: string | null;
   message: string | null;
@@ -92,16 +94,19 @@ export type ImportedMovementRow = {
   // Lo necesario para mostrarla y editarla desde la importación.
   transaction: {
     id: string;
-    kind: TransactionKind;
+    kind: MovementKind;
     date: Date;
     // Puede diferir del monto del archivo si se editó la transacción.
     amount: number;
     categoryId: string;
     categoryName: string;
-    accountName: string;
+    accountName: string | null;
     reason: string | null;
     description: string | null;
     paymentMethod: PaymentMethod | null;
+    cardId: string | null;
+    // Null si es un consumo con tarjeta.
+    accountId: string | null;
     receiptUrls: string[];
     amountLock: { kind: AmountLock; href: string } | null;
     // true si la creó este movimiento; false si se vinculó a una existente.
@@ -110,8 +115,9 @@ export type ImportedMovementRow = {
   // Categoría y motivo propuestos para aplicarlo.
   suggestion: { categoryId: string | null; reason: string };
   missingCategory: string | null;
-  // Método de pago y comprobantes que trae la fila (plantilla genérica).
+  // Método de pago, tarjeta y comprobantes que trae la fila (plantilla genérica).
   paymentMethod: PaymentMethod | null;
+  cardName: string | null;
   receiptUrls: string[];
   duplicates: DuplicateCandidate[];
   // Fecha de otra importación que ya trajo este mismo movimiento.
@@ -184,6 +190,8 @@ export async function getImport(importId: string): Promise<ImportDetail | null> 
               reason: true,
               description: true,
               paymentMethod: true,
+              cardId: true,
+              accountId: true,
               receiptUrls: true,
               category: { select: { name: true } },
               account: { select: { name: true } },
@@ -252,7 +260,7 @@ export async function getImport(importId: string): Promise<ImportDetail | null> 
       row: m.row,
       occurredAt: m.occurredAt,
       date: m.date,
-      kind: m.kind,
+      kind: m.kind as MovementKind,
       amount,
       counterparty: m.counterparty,
       message: m.message,
@@ -261,15 +269,17 @@ export async function getImport(importId: string): Promise<ImportDetail | null> 
       transaction: m.transaction
         ? {
             id: m.transaction.id,
-            kind: m.transaction.kind,
+            kind: m.transaction.kind as MovementKind,
             date: m.transaction.date,
             amount: Number(m.transaction.amount),
             categoryId: m.transaction.categoryId,
             categoryName: m.transaction.category.name,
-            accountName: m.transaction.account.name,
+            accountName: m.transaction.account?.name ?? null,
             reason: m.transaction.reason,
             description: m.transaction.description,
             paymentMethod: m.transaction.paymentMethod,
+            cardId: m.transaction.cardId,
+            accountId: m.transaction.accountId,
             receiptUrls: m.transaction.receiptUrls,
             amountLock: amountLockInfo(m.transaction),
             created: m.createdTransaction,
@@ -279,6 +289,7 @@ export async function getImport(importId: string): Promise<ImportDetail | null> 
       // Categoría del archivo que no existe (para avisar y poder crearla).
       missingCategory: m.categoryName && !fileCategoryId ? m.categoryName : null,
       paymentMethod: m.paymentMethod,
+      cardName: m.cardName,
       receiptUrls: m.receiptUrls,
       duplicates:
         status === "PENDING"
@@ -295,7 +306,7 @@ export async function getImport(importId: string): Promise<ImportDetail | null> 
                 createdAt: t.createdAt,
                 amount: Number(t.amount),
                 categoryName: t.category.name,
-                accountName: t.account.name,
+                accountName: t.account?.name ?? null,
                 reason: t.reason,
                 description: t.description,
               }))

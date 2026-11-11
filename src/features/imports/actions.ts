@@ -9,6 +9,7 @@ import { IMPORT_SOURCES, isImportSource, movementFingerprint } from "@/lib/impor
 import { isPaymentMethod } from "@/lib/labels";
 import { normalizeReason } from "@/lib/reason";
 import { saveCategoryReason } from "@/features/categories/reasons";
+import { findCardByName, loadUserCards, readChargeCard, soleActiveCard } from "@/features/cards/lookup";
 
 export type ImportActionState = { error?: string } | null;
 
@@ -29,6 +30,7 @@ function revalidateWithTransactions() {
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/cuentas");
   revalidatePath("/dashboard/calendario", "layout");
+  revalidatePath("/dashboard/tarjetas", "layout");
 }
 
 async function findOwnAccount(userId: string, accountId: string) {
@@ -51,6 +53,12 @@ export async function createImport(_prevState: ImportActionState, formData: Form
   const rawMethod = String(formData.get("paymentMethod") ?? "");
   const paymentMethod = definition.paymentMethod ?? (isPaymentMethod(rawMethod) ? rawMethod : null);
   if (!paymentMethod) return { error: "Elegí el método de pago de los gastos." };
+  // Tarjeta por defecto si ese método es tarjeta de crédito (los gastos serán consumos).
+  const card =
+    !definition.paymentMethod && paymentMethod === "CREDIT_CARD"
+      ? await readChargeCard(userId, formData)
+      : { cardId: null };
+  if ("error" in card) return { error: card.error };
 
   let rows: string[][];
   try {
@@ -63,6 +71,17 @@ export async function createImport(_prevState: ImportActionState, formData: Form
     const first = parsed.errors[0];
     const more = parsed.errors.length > 1 ? ` (y ${parsed.errors.length - 1} más)` : "";
     return { error: `${first.row ? `Fila ${first.row}: ` : ""}${first.message}${more}` };
+  }
+
+  // Las tarjetas de la plantilla tienen que estar registradas en Tarjetas.
+  if (parsed.movements.some((m) => m.cardName)) {
+    const cards = await loadUserCards(userId);
+    const unknown = parsed.movements.find((m) => m.cardName && !findCardByName(cards, m.cardName));
+    if (unknown) {
+      return {
+        error: `Fila ${unknown.row}: la tarjeta "${unknown.cardName}" no está registrada en Tarjetas (tiene que tener el mismo nombre).`,
+      };
+    }
   }
 
   // Los que ya se importaron antes (en cualquier estado) se saltan: siguen en su importación.
@@ -92,6 +111,7 @@ export async function createImport(_prevState: ImportActionState, formData: Form
       periodEnd: new Date(Math.max(...times)),
       skippedCount,
       paymentMethod: definition.paymentMethod ? null : paymentMethod,
+      cardId: card.cardId,
       movements: {
         createMany: {
           data: movements.map((m) => ({
@@ -108,6 +128,7 @@ export async function createImport(_prevState: ImportActionState, formData: Form
             categoryName: m.categoryName ?? null,
             reason: m.reason ?? null,
             paymentMethod: m.paymentMethod ?? null,
+            cardName: m.cardName ?? null,
             receiptUrls: m.receiptUrls ?? [],
           })),
         },
@@ -154,18 +175,19 @@ export async function applyMovements(
 
   const item = await prisma.transactionImport.findFirst({
     where: { id: importId, userId },
-    select: { source: true, paymentMethod: true },
+    select: { source: true, paymentMethod: true, cardId: true },
   });
   if (!item || !isImportSource(item.source)) return { error: "Importación inválida." };
   const definition = IMPORT_SOURCES[item.source];
 
-  const [movements, categories, accounts] = await Promise.all([
+  const [movements, categories, accounts, cards] = await Promise.all([
     prisma.importedMovement.findMany({ where: { id: { in: items.map((i) => i.id) }, importId, userId } }),
     prisma.category.findMany({
       where: { id: { in: items.map((i) => i.categoryId) }, OR: [{ userId: null }, { userId }] },
       select: { id: true, kind: true },
     }),
     prisma.account.findMany({ where: { id: { in: items.map((i) => i.accountId) }, userId }, select: { id: true } }),
+    loadUserCards(userId),
   ]);
   const movementById = new Map(movements.map((m) => [m.id, m]));
   const kindByCategory = new Map(categories.map((c) => [c.id, c.kind]));
@@ -187,6 +209,17 @@ export async function applyMovements(
   if (movements.some((m) => m.kind === "EXPENSE" && !methodOf(m))) {
     return { error: "Hay gastos sin método de pago." };
   }
+  // Un gasto con tarjeta de crédito es un consumo: sin cuenta y con su tarjeta
+  // (la de la fila, la elegida al importar o la única que hay).
+  const soleCard = soleActiveCard(cards);
+  const cardOf = (movement: (typeof movements)[number]) => {
+    if (methodOf(movement) !== "CREDIT_CARD") return null;
+    const named = movement.cardName ? findCardByName(cards, movement.cardName) : null;
+    return named?.id ?? item.cardId ?? soleCard?.id ?? null;
+  };
+  if (movements.some((m) => methodOf(m) === "CREDIT_CARD" && !cardOf(m))) {
+    return { error: "Hay gastos con tarjeta de crédito sin tarjeta: registrala en Tarjetas o elegila al importar." };
+  }
 
   await prisma.$transaction(async (tx) => {
     for (const applyItem of items) {
@@ -194,7 +227,7 @@ export async function applyMovements(
       const transaction = await tx.transaction.create({
         data: {
           userId,
-          accountId: applyItem.accountId,
+          accountId: methodOf(movement) === "CREDIT_CARD" ? null : applyItem.accountId,
           categoryId: applyItem.categoryId,
           kind: movement.kind,
           amount: movement.amount,
@@ -204,6 +237,7 @@ export async function applyMovements(
           // La hora que se muestra en Transacciones es la de la operación.
           createdAt: movement.occurredAt,
           paymentMethod: methodOf(movement),
+          cardId: cardOf(movement),
           receiptUrls: movement.receiptUrls,
         },
       });

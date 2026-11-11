@@ -58,13 +58,16 @@ export default async function PagoTarjetaPage({ params }: { params: Promise<{ id
 
   const dayBeforeDue = shiftDay(entry.dueDate, -1);
   const planEnd = dayBeforeDue >= today ? dayBeforeDue : today;
-  const backHref = `/dashboard/calendario?month=${monthKey(entry.dueDate.getUTCFullYear(), entry.dueDate.getUTCMonth() + 1)}`;
+  // Vuelve a la tarjeta, en el ciclo de este vencimiento (el mes del cierre).
+  const backHref = entry.cycle
+    ? `/dashboard/tarjetas/${entry.scheduledPaymentId}?ciclo=${monthKey(entry.cycle.closing.getUTCFullYear(), entry.cycle.closing.getUTCMonth() + 1)}`
+    : `/dashboard/tarjetas/${entry.scheduledPaymentId}`;
 
   return (
     <div className="flex flex-col gap-4">
       <Link href={backHref} className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="size-4" />
-        Calendario
+        {entry.name}
       </Link>
 
       <Card>
@@ -84,7 +87,7 @@ export default async function PagoTarjetaPage({ params }: { params: Promise<{ id
                 <p className="text-xs text-muted-foreground">
                   Consumos del {formatDate(entry.cycle.start)} al {formatDate(entry.cycle.closing)} ·{" "}
                   <Link
-                    href={`/dashboard/calendario/tarjeta/${entry.scheduledPaymentId}?year=${entry.cycle.closing.getUTCFullYear()}`}
+                    href={`/dashboard/tarjetas/${entry.scheduledPaymentId}/cronograma?year=${entry.cycle.closing.getUTCFullYear()}`}
                     className="font-medium text-primary hover:underline"
                   >
                     Cronograma de facturación

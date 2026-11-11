@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/auth";
 import { parseDateOnly } from "@/lib/date";
 import { isPaymentMethod } from "@/lib/labels";
+import { readExpenseSource } from "@/features/cards/lookup";
 import type { BudgetTemplate } from "@/generated/prisma/client";
 import { BUDGET_TEMPLATES, BUDGET_TEMPLATE_ITEMS, FALLBACK_CATEGORY_NAME } from "./templates";
 
@@ -24,6 +25,7 @@ function revalidateAll() {
   revalidatePath("/dashboard/cuentas");
   // Un gasto con tarjeta cambia el estimado del calendario.
   revalidatePath("/dashboard/calendario", "layout");
+  revalidatePath("/dashboard/tarjetas", "layout");
 }
 
 function readOptionalDate(formData: FormData, field: string): Date | null | "invalid" {
@@ -205,7 +207,6 @@ export async function applyBudgetItem(
 ): Promise<BudgetActionState> {
   const userId = await requireUserId();
 
-  const accountId = String(formData.get("accountId") ?? "");
   const amount = Number(formData.get("amount"));
   const date = readOptionalDate(formData, "date");
   const paymentMethod = String(formData.get("paymentMethod") ?? "");
@@ -213,9 +214,9 @@ export async function applyBudgetItem(
   if (!amount || amount <= 0) return { error: "El monto debe ser mayor a 0." };
   if (!date || date === "invalid") return { error: "La fecha no es válida." };
   if (!isPaymentMethod(paymentMethod)) return { error: "Elegí un método de pago." };
-
-  const account = await findOwnAccount(userId, accountId);
-  if (!account) return { error: "Elegí una cuenta." };
+  // Con tarjeta de crédito es un consumo: sin cuenta hasta que se paga la tarjeta.
+  const source = await readExpenseSource(userId, paymentMethod, formData);
+  if ("error" in source) return { error: source.error };
 
   const item = await findOwnItem(userId, itemId);
   if (!item) return { error: "Gasto inválido." };
@@ -225,7 +226,8 @@ export async function applyBudgetItem(
     const transaction = await tx.transaction.create({
       data: {
         userId,
-        accountId: account.id,
+        accountId: source.accountId,
+        cardId: source.cardId,
         categoryId: item.categoryId,
         kind: "EXPENSE",
         amount,
@@ -250,15 +252,14 @@ export async function applyPendingBudgetItems(
 ): Promise<BudgetActionState> {
   const userId = await requireUserId();
 
-  const accountId = String(formData.get("accountId") ?? "");
   const date = readOptionalDate(formData, "date");
   const paymentMethod = String(formData.get("paymentMethod") ?? "");
 
   if (!date || date === "invalid") return { error: "La fecha no es válida." };
   if (!isPaymentMethod(paymentMethod)) return { error: "Elegí un método de pago." };
-
-  const account = await findOwnAccount(userId, accountId);
-  if (!account) return { error: "Elegí una cuenta." };
+  // Con tarjeta de crédito es un consumo: sin cuenta hasta que se paga la tarjeta.
+  const source = await readExpenseSource(userId, paymentMethod, formData);
+  if ("error" in source) return { error: source.error };
 
   const items = await prisma.budgetItem.findMany({
     where: { budgetId, transactionId: null, amount: { gt: 0 }, budget: { userId } },
@@ -270,7 +271,8 @@ export async function applyPendingBudgetItems(
       const transaction = await tx.transaction.create({
         data: {
           userId,
-          accountId: account.id,
+          accountId: source.accountId,
+          cardId: source.cardId,
           categoryId: item.categoryId,
           kind: "EXPENSE",
           amount: item.amount,

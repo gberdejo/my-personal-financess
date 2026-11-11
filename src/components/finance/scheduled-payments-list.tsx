@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CalendarRange, HandCoins } from "lucide-react";
+import { CreditCard, HandCoins } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDeleteButton } from "@/components/finance/confirm-delete-button";
@@ -37,8 +37,6 @@ export function ScheduledPaymentsList({
   accounts: Option[];
   categories: Option[];
 }) {
-  const hasCard = payments.some((p) => p.type === "CREDIT_CARD");
-
   return (
     <Card className="pb-0">
       <CardHeader>
@@ -88,17 +86,16 @@ export function ScheduledPaymentsList({
                     size="icon"
                     className="text-muted-foreground hover:text-foreground"
                   >
-                    <Link href={`/dashboard/calendario/tarjeta/${payment.id}`}>
-                      <CalendarRange className="size-4" />
-                      <span className="sr-only">Cronograma de facturación</span>
+                    <Link href={`/dashboard/tarjetas/${payment.id}`}>
+                      <CreditCard className="size-4" />
+                      <span className="sr-only">Ver tarjeta</span>
                     </Link>
                   </Button>
                 )}
-                {payment.type !== "LOAN" && (
+                {payment.type === "BILL" && (
                   <ScheduledPaymentFormDialog
                     accounts={accounts}
                     categories={categories}
-                    hasCard={hasCard}
                     payment={{
                       id: payment.id,
                       type: payment.type,
@@ -110,17 +107,18 @@ export function ScheduledPaymentsList({
                       frequency: payment.frequency,
                       startDate: toUTCDateInputValue(payment.startDate),
                       endDate: payment.endDate ? toUTCDateInputValue(payment.endDate) : null,
-                      closingDate: payment.nextClosingDate ? toUTCDateInputValue(payment.nextClosingDate) : null,
-                      dueDate: payment.nextDate ? toUTCDateInputValue(payment.nextDate) : null,
                       active: payment.active,
                     }}
                   />
                 )}
-                <ConfirmDeleteButton
-                  title={`¿Eliminar “${payment.name}”?`}
-                  description="Deja de aparecer en el calendario. Los gastos que ya registraste con este pago se conservan en Transacciones."
-                  onConfirm={deleteScheduledPayment.bind(null, payment.id)}
-                />
+                {/* Las tarjetas se editan y borran desde Tarjetas. */}
+                {payment.type !== "CREDIT_CARD" && (
+                  <ConfirmDeleteButton
+                    title={`¿Eliminar “${payment.name}”?`}
+                    description="Deja de aparecer en el calendario. Los gastos que ya registraste con este pago se conservan en Transacciones."
+                    onConfirm={deleteScheduledPayment.bind(null, payment.id)}
+                  />
+                )}
               </div>
             </li>
           ))}

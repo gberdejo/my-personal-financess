@@ -12,7 +12,7 @@ type TransactionRow = {
   amount: number;
   kind: TransactionKind;
   categoryName: string;
-  accountName: string;
+  accountName: string | null;
 };
 
 const DEFAULT_LIMIT = 5;

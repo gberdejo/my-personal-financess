@@ -122,6 +122,49 @@ export function periodsByMonth(periods: BillingPeriod[]) {
   return new Map(periods.map((period) => [monthIndex(period.closingDate), period]));
 }
 
+// Ciclo de facturación del mes `index` (el mes del cierre): consumos del día
+// siguiente al cierre anterior hasta este cierre. `end` es exclusivo.
+export type BillingCycle = {
+  index: number;
+  start: Date;
+  closing: Date;
+  end: Date;
+  dueDate: Date;
+  fromSchedule: boolean;
+};
+
+export function billingCycle(rule: CardRule, byMonth: Map<number, BillingPeriod>, index: number): BillingCycle {
+  const current = billingMonth(rule, byMonth, index);
+  const previous = billingMonth(rule, byMonth, index - 1);
+  return {
+    index,
+    start: shiftDay(previous.closingDate, 1),
+    closing: current.closingDate,
+    end: shiftDay(current.closingDate, 1),
+    dueDate: current.dueDate,
+    fromSchedule: current.fromSchedule,
+  };
+}
+
+// "YYYY-MM" de un mes de facturación (el del cierre), para las URLs (`?ciclo=`).
+export function billingMonthKey(index: number) {
+  const date = monthStart(index);
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+// Mes de facturación cuyo ciclo contiene `date`. El cierre puede caer en
+// cualquier día del mes, así que se ajusta desde el mes de la fecha.
+export function billingIndexOf(rule: CardRule, byMonth: Map<number, BillingPeriod>, date: Date) {
+  let index = monthIndex(date);
+  for (let step = 0; step < 3; step++) {
+    const cycle = billingCycle(rule, byMonth, index);
+    if (date < cycle.start) index--;
+    else if (date >= cycle.end) index++;
+    else break;
+  }
+  return index;
+}
+
 // Vencimientos de la tarjeta en [start, end). Los meses de la regla arrancan en
 // `startDate`; los del cronograma siempre cuentan. El pago cae a lo sumo dos
 // meses después del cierre, por eso se recorre desde dos meses antes.

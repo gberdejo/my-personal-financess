@@ -16,6 +16,8 @@ export type ParsedMovement = {
   categoryName?: string | null;
   reason?: string | null;
   paymentMethod?: PaymentMethod | null;
+  // Nombre de la tarjeta de crédito (como está en Tarjetas).
+  cardName?: string | null;
   receiptUrls?: string[];
 };
 

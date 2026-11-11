@@ -10,6 +10,9 @@ datasource db {
 enum TransactionKind {
   INCOME
   EXPENSE
+  // Pago de una tarjeta de crédito: sale de la cuenta pero no es un gasto
+  // (los gastos son sus consumos, que ya se contaron).
+  CARD_PAYMENT
 }
 
 // Cómo se pagó un gasto. Es informativo: el saldo lo mueve la cuenta
@@ -107,7 +110,9 @@ model CategoryReason {
 model Transaction {
   id            String          @id @default(cuid())
   userId        String
-  accountId     String
+  // Null solo en consumos con tarjeta: no salen de ninguna cuenta hasta que se
+  // paga la tarjeta (ese pago es una transacción CARD_PAYMENT con cuenta).
+  accountId     String?
   categoryId    String
   kind          TransactionKind
   amount        Decimal         @db.Decimal(12, 2)
@@ -118,13 +123,18 @@ model Transaction {
   date          DateTime
   // Solo gastos. Null en ingresos y en gastos anteriores a este campo.
   paymentMethod PaymentMethod?
+  // Solo con método CREDIT_CARD: la tarjeta (ScheduledPayment de tipo CREDIT_CARD).
+  // Con accountId null es un consumo de esa tarjeta; con cuenta, un gasto
+  // anterior ya descontado de la cuenta (no suma en la tarjeta).
+  cardId        String?
   // Links a los comprobantes (fotos o PDF en Google Drive u otro sitio). No se guardan archivos.
   receiptUrls   String[]        @default([])
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
-  account             Account              @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  account             Account?             @relation(fields: [accountId], references: [id], onDelete: Cascade)
   category            Category             @relation(fields: [categoryId], references: [id])
+  card                ScheduledPayment?    @relation("TransactionCard", fields: [cardId], references: [id], onDelete: SetNull)
   budgetItem          BudgetItem?
   scheduledOccurrence ScheduledOccurrence?
   rouletteOperation   RouletteOperation?
@@ -135,6 +145,7 @@ model Transaction {
   @@index([userId, date])
   @@index([accountId])
   @@index([categoryId])
+  @@index([cardId])
 }
 
 // Presupuesto para algo que todavía no pasó (una fiesta, una obra, unas
@@ -218,6 +229,9 @@ model ScheduledPayment {
   loan               Loan?
   installments       LoanInstallment[]
   prepayments        LoanPrepayment[]
+  // Solo tarjeta: gastos pagados con ella e importaciones que la usan por defecto.
+  cardTransactions   Transaction[]         @relation("TransactionCard")
+  cardImports        TransactionImport[]   @relation("ImportCard")
 
   @@index([userId])
 }
@@ -400,9 +414,12 @@ model TransactionImport {
   skippedCount  Int            @default(0)
   // Método de pago de los gastos si la fuente no lo fija (plantilla genérica).
   paymentMethod PaymentMethod?
+  // Tarjeta por defecto si ese método es tarjeta de crédito.
+  cardId        String?
   createdAt     DateTime       @default(now())
 
   account   Account?           @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  card      ScheduledPayment?  @relation("ImportCard", fields: [cardId], references: [id], onDelete: SetNull)
   movements ImportedMovement[]
 
   @@index([userId, createdAt])
@@ -428,10 +445,12 @@ model ImportedMovement {
   // Tipo tal como viene en el archivo ("PAGASTE", "TE PAGÓ").
   rawType            String
   // Lo que trae la plantilla genérica para proponer al aplicar: nombre de la
-  // categoría, motivo y método de pago (este gana sobre el de la importación).
+  // categoría, motivo, método de pago y nombre de la tarjeta (estos dos ganan
+  // sobre los de la importación).
   categoryName       String?
   reason             String?
   paymentMethod      PaymentMethod?
+  cardName           String?
   // Links a comprobantes que trae la plantilla; pasan a la transacción al aplicar.
   receiptUrls        String[]        @default([])
   // Identifica el mismo movimiento en otra importación.

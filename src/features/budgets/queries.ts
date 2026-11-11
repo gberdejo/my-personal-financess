@@ -57,7 +57,7 @@ export async function getBudget(budgetId: string) {
           transactionId: item.transaction.id,
           amount: Number(item.transaction.amount),
           date: item.transaction.date,
-          accountName: item.transaction.account.name,
+          accountName: item.transaction.account?.name ?? null,
         }
       : null,
   }));

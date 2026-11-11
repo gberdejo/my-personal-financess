@@ -54,7 +54,7 @@ function groupByDay(entries: CalendarEntry[], operations: RouletteOperationRow[]
 }
 
 function paymentDetailHref(operation: RouletteOperationRow) {
-  return `/dashboard/calendario/pago/${operation.scheduledPaymentId}/${operation.dueDateValue}`;
+  return `/dashboard/tarjetas/${operation.scheduledPaymentId}/${operation.dueDateValue}`;
 }
 
 export function CalendarMonthGrid({

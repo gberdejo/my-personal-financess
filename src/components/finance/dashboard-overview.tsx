@@ -28,7 +28,7 @@ type TransactionRow = {
   amount: number;
   kind: TransactionKind;
   categoryName: string;
-  accountName: string;
+  accountName: string | null;
 };
 type Summary = {
   balance: number;

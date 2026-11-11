@@ -4,19 +4,27 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/auth";
 import { parseDateOnly } from "@/lib/date";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatDate } from "@/lib/format";
 import { isPaymentMethod, isScheduleFrequency, MONTH_NAMES } from "@/lib/labels";
 import { billingMonth, monthIndex, monthStart, periodsByMonth, ruleBillingMonth } from "@/lib/schedule";
 import type { PaymentMethod, ScheduledPaymentType, ScheduleFrequency } from "@/generated/prisma/client";
 import { freezeRuleMonthsWithData, isDueDateOf, moveDueDate } from "./periods";
 import { getCalendarEntry } from "./queries";
+import { cardPaymentCategoryId, readExpenseSource } from "@/features/cards/lookup";
 
 export type ScheduleActionState = { error?: string } | null;
 
 function revalidateSchedule() {
   revalidatePath("/dashboard/calendario", "layout");
+  revalidatePath("/dashboard/tarjetas", "layout");
   // Las cuotas de préstamos se pagan desde el calendario.
   revalidatePath("/dashboard/prestamos", "layout");
+}
+
+// Las tarjetas se eligen en cualquier formulario de gasto (las carga el layout
+// del dashboard), y borrarlas deja sus gastos sin asignar.
+function revalidateCards(type: ScheduledPaymentType) {
+  if (type === "CREDIT_CARD") revalidatePath("/dashboard", "layout");
 }
 
 // Pagar o deshacer una cuota crea/borra transacciones, así que también cambian
@@ -198,6 +206,7 @@ export async function createScheduledPayment(
   });
 
   revalidateSchedule();
+  revalidateCards(type);
   return null;
 }
 
@@ -251,6 +260,7 @@ export async function updateScheduledPayment(
   }
 
   revalidateSchedule();
+  revalidateCards(payment.type);
   return null;
 }
 
@@ -335,8 +345,11 @@ export async function saveBillingSchedule(
 // Las transacciones ya registradas no se borran; solo sus cuotas.
 export async function deleteScheduledPayment(scheduledPaymentId: string) {
   const userId = await requireUserId();
-  await prisma.scheduledPayment.deleteMany({ where: { id: scheduledPaymentId, userId } });
+  const payment = await findOwnPayment(userId, scheduledPaymentId);
+  if (!payment) return;
+  await prisma.scheduledPayment.delete({ where: { id: payment.id } });
   revalidateSchedule();
+  revalidateCards(payment.type);
 }
 
 // ---------- Cuotas ----------
@@ -392,12 +405,14 @@ export async function payOccurrence(
   const amount = Number(formData.get("amount"));
   if (!amount || amount <= 0) return { error: "El monto debe ser mayor a 0." };
 
-  // La tarjeta solo se marca: sus gastos ya están registrados. Lo mismo si el
-  // pago ya se cargó en Transacciones (ej. cuotas de un préstamo ya en curso).
-  if (payment.type === "CREDIT_CARD" || formData.get("markOnly") === "on") {
-    // En tarjeta se guarda cuánto sumaban sus gastos, para avisar si cambian después.
-    const estimatedAtPayment =
-      payment.type === "CREDIT_CARD" ? ((await getCalendarEntry(payment.id, dueDateValue))?.estimated ?? null) : null;
+  const isCard = payment.type === "CREDIT_CARD";
+  // En tarjeta se guarda cuánto sumaban sus consumos, para avisar si cambian después.
+  const cardEntry = isCard ? await getCalendarEntry(payment.id, dueDateValue) : null;
+  const estimatedAtPayment = cardEntry?.estimated ?? null;
+
+  // Solo se marca si el pago ya está en Transacciones (ej. cuotas de un préstamo
+  // ya en curso, o una tarjeta cuyos gastos se descontaron uno por uno).
+  if (formData.get("markOnly") === "on") {
     await prisma.scheduledOccurrence.create({
       data: { scheduledPaymentId: payment.id, dueDate, status: "PAID", amount, estimatedAtPayment },
     });
@@ -406,12 +421,53 @@ export async function payOccurrence(
   }
 
   const date = readOptionalDate(formData, "date");
-  const paymentMethod = readText(formData, "paymentMethod");
   if (!date || date === "invalid") return { error: "La fecha no es válida." };
-  if (!isPaymentMethod(paymentMethod)) return { error: "Elegí un método de pago." };
 
-  const account = await findOwnAccount(userId, readText(formData, "accountId"));
-  if (!account) return { error: "Elegí una cuenta." };
+  // Pagar la tarjeta: una sola salida de la cuenta por todo el periodo. No es un
+  // gasto (CARD_PAYMENT): los gastos son sus consumos, que ya se contaron.
+  if (isCard) {
+    const account = await findOwnAccount(userId, readText(formData, "accountId"));
+    if (!account) return { error: "Elegí la cuenta desde la que pagás la tarjeta." };
+    const categoryId = await cardPaymentCategoryId();
+    const cycle = cardEntry?.cycle;
+
+    await prisma.$transaction(async (tx) => {
+      const transaction = await tx.transaction.create({
+        data: {
+          userId,
+          accountId: account.id,
+          categoryId,
+          kind: "CARD_PAYMENT",
+          amount,
+          reason: `Pago ${payment.name}`,
+          description: cycle
+            ? `Consumos del ${formatDate(cycle.start)} al ${formatDate(cycle.closing)}`
+            : null,
+          date,
+          paymentMethod: null,
+        },
+      });
+      await tx.scheduledOccurrence.create({
+        data: {
+          scheduledPaymentId: payment.id,
+          dueDate,
+          status: "PAID",
+          amount,
+          estimatedAtPayment,
+          transactionId: transaction.id,
+        },
+      });
+    });
+
+    revalidateAll();
+    return null;
+  }
+
+  const paymentMethod = readText(formData, "paymentMethod");
+  if (!isPaymentMethod(paymentMethod)) return { error: "Elegí un método de pago." };
+  // Un servicio pagado con tarjeta de crédito es un consumo de esa tarjeta.
+  const source = await readExpenseSource(userId, paymentMethod, formData);
+  if ("error" in source) return { error: source.error };
   if (!payment.categoryId) return { error: "El pago no tiene categoría." };
   const categoryId = payment.categoryId;
   const description = payment.type === "LOAN" ? await installmentDescription(payment.id, dueDate) : null;
@@ -420,7 +476,8 @@ export async function payOccurrence(
     const transaction = await tx.transaction.create({
       data: {
         userId,
-        accountId: account.id,
+        accountId: source.accountId,
+        cardId: source.cardId,
         categoryId,
         kind: "EXPENSE",
         amount,

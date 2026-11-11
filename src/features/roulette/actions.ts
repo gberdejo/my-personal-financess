@@ -8,6 +8,7 @@ import { isPaymentMethod } from "@/lib/labels";
 import { estimateOperationCount, planRoulette, rouletteFee } from "@/lib/roulette";
 import type { PaymentMethod, RouletteOperation } from "@/generated/prisma/client";
 import { isDueDateOf } from "@/features/schedule/periods";
+import { readExpenseSource } from "@/features/cards/lookup";
 
 export type RouletteActionState = { error?: string } | null;
 
@@ -21,6 +22,7 @@ const MAX_FEE_PERCENT = 20;
 function revalidateSchedule() {
   // "layout" incluye la página de detalle de cada vencimiento.
   revalidatePath("/dashboard/calendario", "layout");
+  revalidatePath("/dashboard/tarjetas", "layout");
 }
 
 // Registrar o deshacer crea/borra el gasto de la comisión.
@@ -188,22 +190,19 @@ export async function saveRouletteOperation(
 
 // ---------- Registrar la comisión ----------
 
-type CommissionTarget = { accountId: string; categoryId: string; paymentMethod: PaymentMethod };
+// Con tarjeta de crédito la comisión es un consumo: sin cuenta y con tarjeta.
+type CommissionTarget = { accountId: string | null; categoryId: string; paymentMethod: PaymentMethod; cardId: string | null };
 
 async function readCommissionTarget(
   userId: string,
   formData: FormData
 ): Promise<{ error: string } | { target: CommissionTarget }> {
-  const accountId = readText(formData, "accountId");
   const categoryId = readText(formData, "categoryId");
   const paymentMethod = readText(formData, "paymentMethod");
 
   if (!isPaymentMethod(paymentMethod)) return { error: "Elegí un método de pago." };
-
-  const account = accountId
-    ? await prisma.account.findFirst({ where: { id: accountId, userId }, select: { id: true } })
-    : null;
-  if (!account) return { error: "Elegí una cuenta." };
+  const source = await readExpenseSource(userId, paymentMethod, formData);
+  if ("error" in source) return { error: source.error };
 
   const category = categoryId
     ? await prisma.category.findFirst({
@@ -213,7 +212,7 @@ async function readCommissionTarget(
     : null;
   if (!category) return { error: "Elegí una categoría." };
 
-  return { target: { accountId: account.id, categoryId: category.id, paymentMethod } };
+  return { target: { accountId: source.accountId, categoryId: category.id, paymentMethod, cardId: source.cardId } };
 }
 
 // Gasto de la comisión, con la fecha del ruleteo. Las operaciones sin comisión
@@ -231,6 +230,7 @@ async function createCommission(userId: string, operation: RouletteOperation, ta
         description: `${operation.provider} · cargo S/ ${Number(operation.charge).toFixed(2)}`,
         date: operation.date,
         paymentMethod: target.paymentMethod,
+        cardId: target.cardId,
       },
     });
     await tx.rouletteOperation.update({ where: { id: operation.id }, data: { transactionId: transaction.id } });

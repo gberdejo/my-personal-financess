@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { CategoryCombobox } from "@/components/finance/category-combobox";
 import { PaymentMethodSelect } from "@/components/finance/payment-method-select";
@@ -25,9 +26,11 @@ import { updateTransaction } from "@/features/transactions/actions";
 import { formatCurrency } from "@/lib/format";
 import { AMOUNT_LOCK_LABELS, type AmountLock } from "@/lib/transaction-lock";
 import type { ReasonSuggestion } from "@/features/categories/queries";
-import type { PaymentMethod, TransactionKind } from "@/generated/prisma/client";
+import type { PaymentMethod } from "@/generated/prisma/client";
+import type { MovementKind } from "@/lib/labels";
 
 type CategoryOption = { id: string; name: string };
+type AccountOption = { id: string; name: string };
 
 export function EditTransactionDialog({
   transactionId,
@@ -37,6 +40,9 @@ export function EditTransactionDialog({
   amountLock,
   currentCategoryId,
   currentPaymentMethod,
+  currentCardId,
+  currentAccountId,
+  accounts = [],
   currentReason,
   currentDescription,
   currentReceiptUrls,
@@ -45,13 +51,18 @@ export function EditTransactionDialog({
   reasonSuggestions,
 }: {
   transactionId: string;
-  kind: TransactionKind;
+  kind: MovementKind;
   currentDate: string;
   currentAmount: number;
   // Gasto de un prepago o comisión de ruleteo: el monto se ve pero no se edita.
   amountLock: { kind: AmountLock; href: string } | null;
   currentCategoryId: string;
   currentPaymentMethod: PaymentMethod | null;
+  currentCardId: string | null;
+  // Null en un consumo con tarjeta (todavía no salió de ninguna cuenta).
+  currentAccountId: string | null;
+  // Para elegir de qué cuenta sale un consumo que pasa a otro método.
+  accounts?: AccountOption[];
   currentReason: string | null;
   currentDescription: string | null;
   currentReceiptUrls: string[];
@@ -66,6 +77,10 @@ export function EditTransactionDialog({
   const [categoryId, setCategoryId] = useState(currentCategoryId);
   // Igual que al crear: elegir la categoría por un motivo lo completa.
   const [reasonPrefill, setReasonPrefill] = useState({ key: 0, value: currentReason ?? "" });
+  const [method, setMethod] = useState<PaymentMethod | null>(currentPaymentMethod);
+  const isCharge = kind === "EXPENSE" && currentAccountId === null;
+  // Un consumo que deja de ser con tarjeta pasa a salir de una cuenta.
+  const needsAccount = isCharge && method !== "CREDIT_CARD";
   const {
     create: createCategory,
     pending: categoryPending,
@@ -92,6 +107,7 @@ export function EditTransactionDialog({
   function handleOpenChange(next: boolean) {
     setOpen(next);
     if (next) {
+      setMethod(currentPaymentMethod);
       setCategoryId(currentCategoryId);
       setCategoryError(null);
       setReasonPrefill((prev) => ({ key: prev.key + 1, value: currentReason ?? "" }));
@@ -115,7 +131,11 @@ export function EditTransactionDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Editar movimiento</DialogTitle>
-          <DialogDescription>La cuenta y el tipo no se pueden modificar.</DialogDescription>
+          <DialogDescription>
+            {isCharge
+              ? "Es un consumo con tarjeta: no sale de ninguna cuenta hasta que pagues su periodo."
+              : "El tipo no se puede modificar."}
+          </DialogDescription>
         </DialogHeader>
         <form action={formAction} className="flex flex-col gap-4">
           <div className="grid grid-cols-2 gap-3">
@@ -158,7 +178,35 @@ export function EditTransactionDialog({
           )}
 
           {kind === "EXPENSE" && (
-            <PaymentMethodSelect id="edit-tx-payment-method" defaultValue={currentPaymentMethod} />
+            <PaymentMethodSelect
+              key={open ? "open" : "closed"}
+              id="edit-tx-payment-method"
+              defaultValue={currentPaymentMethod}
+              defaultCardId={currentCardId}
+              legacyAccountName={
+                isCharge ? undefined : (accounts.find((a) => a.id === currentAccountId)?.name ?? null)
+              }
+              onMethodChange={setMethod}
+            />
+          )}
+
+          {needsAccount && (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="edit-tx-account">Cuenta</Label>
+              <Select name="accountId" required>
+                <SelectTrigger id="edit-tx-account" className="w-full">
+                  <SelectValue placeholder="¿De qué cuenta salió?" />
+                </SelectTrigger>
+                <SelectContent>
+                  {accounts.map((account) => (
+                    <SelectItem key={account.id} value={account.id}>
+                      {account.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Deja de ser un consumo de la tarjeta y resta de esa cuenta.</p>
+            </div>
           )}
 
           <div className="flex flex-col gap-2">

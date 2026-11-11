@@ -115,7 +115,7 @@ export function OccurrenceDialog({
               <p className="text-xs text-muted-foreground">Deuda del estado de cuenta</p>
             ) : entry.cycle && (
               <p className="text-xs text-muted-foreground">
-                Gastos con tarjeta del {formatDate(entry.cycle.start)} al {formatDate(shiftDay(entry.cycle.end, -1))}
+                Consumos del {formatDate(entry.cycle.start)} al {formatDate(shiftDay(entry.cycle.end, -1))}
                 {entry.cycle.open && " · ciclo en curso"}
               </p>
             )}
@@ -164,7 +164,7 @@ export function OccurrenceDialog({
               )}
             </span>
             <Link
-              href={`/dashboard/calendario/pago/${entry.scheduledPaymentId}/${entry.dueDateValue}`}
+              href={`/dashboard/tarjetas/${entry.scheduledPaymentId}/${entry.dueDateValue}`}
               className="flex items-center gap-1 font-medium text-primary hover:underline"
             >
               Deuda y ruleteo
@@ -182,7 +182,9 @@ export function OccurrenceDialog({
               {entry.status === "SKIPPED"
                 ? "Esta cuota se omitió. Al deshacer vuelve a quedar pendiente."
                 : entry.transactionId
-                  ? "Se registró como gasto en Transacciones. Al deshacer se borra ese gasto y la cuota vuelve a quedar pendiente."
+                  ? isCard
+                    ? "Se registró el pago de la tarjeta en Transacciones y sus consumos quedaron pagados. Al deshacer se borra ese pago (el monto vuelve a la cuenta) y el periodo vuelve a quedar pendiente."
+                    : "Se registró como gasto en Transacciones. Al deshacer se borra ese gasto y la cuota vuelve a quedar pendiente."
                   : "Marcada como pagada. Al deshacer vuelve a quedar pendiente."}
             </p>
             <DialogFooter>
@@ -207,28 +209,26 @@ export function OccurrenceDialog({
               />
               {isCard && entry.cycle?.open && (
                 <p className="text-xs text-muted-foreground">
-                  El ciclo todavía no cerró: el monto puede subir con nuevos gastos.
+                  El ciclo todavía no cerró: el monto puede subir con nuevos consumos.
                 </p>
               )}
             </div>
 
-            {!isCard && (
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  name="markOnly"
-                  checked={markOnly}
-                  onChange={(e) => setMarkOnly(e.target.checked)}
-                  className="size-4 accent-primary"
-                />
-                Ya está en Transacciones: solo marcar como pagada
-              </label>
-            )}
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                name="markOnly"
+                checked={markOnly}
+                onChange={(e) => setMarkOnly(e.target.checked)}
+                className="size-4 accent-primary"
+              />
+              {isCard ? "Ya está descontado de mi cuenta: solo marcar como pagada" : "Ya está en Transacciones: solo marcar como pagada"}
+            </label>
 
-            {isCard || markOnly ? (
+            {markOnly ? (
               <p className="text-xs text-muted-foreground">
                 {isCard
-                  ? "Solo se marca como pagada: los gastos de la tarjeta ya están registrados en Transacciones."
+                  ? "No se crea el pago. Usalo para periodos cuyos gastos ya restaron de tu cuenta uno por uno."
                   : "No se crea otro gasto. Usalo para cuotas que pagaste antes de cargarlas acá."}
               </p>
             ) : (
@@ -260,7 +260,14 @@ export function OccurrenceDialog({
                     />
                   </div>
                 </div>
-                <PaymentMethodSelect id={`pay-method-${entry.key}`} defaultValue={entry.paymentMethod} />
+                {isCard ? (
+                  <p className="text-xs text-muted-foreground">
+                    Se registra un solo pago de tarjeta que sale de esta cuenta, y los consumos del periodo quedan
+                    pagados. No se cuenta otra vez como gasto: los gastos son los consumos.
+                  </p>
+                ) : (
+                  <PaymentMethodSelect id={`pay-method-${entry.key}`} defaultValue={entry.paymentMethod} />
+                )}
               </>
             )}
 
@@ -272,9 +279,9 @@ export function OccurrenceDialog({
               </Button>
               <Button
                 type="submit"
-                disabled={pending || otherPending || (!isCard && !markOnly && accounts.length === 0)}
+                disabled={pending || otherPending || (!markOnly && accounts.length === 0)}
               >
-                {pending ? "Registrando…" : isCard || markOnly ? "Marcar como pagada" : "Registrar pago"}
+                {pending ? "Registrando…" : markOnly ? "Marcar como pagada" : isCard ? "Pagar tarjeta" : "Registrar pago"}
               </Button>
             </DialogFooter>
           </form>

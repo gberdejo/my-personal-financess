@@ -30,7 +30,8 @@ import { PaymentMethodSelect } from "@/components/finance/payment-method-select"
 import { ReceiptLinksField } from "@/components/finance/receipt-links-field";
 import { createTransaction } from "@/features/transactions/actions";
 import type { ReasonSuggestion } from "@/features/categories/queries";
-import type { TransactionKind } from "@/generated/prisma/client";
+import type { MovementKind } from "@/lib/labels";
+import type { PaymentMethod } from "@/generated/prisma/client";
 
 type CategoryOption = { id: string; name: string };
 type AccountOption = { id: string; name: string };
@@ -57,12 +58,16 @@ export function TransactionFormDialog({
   reasonSuggestions: Record<string, ReasonSuggestion[]>;
 }) {
   const [open, setOpen] = useState(false);
-  const [kind, setKind] = useState<TransactionKind>("EXPENSE");
+  const [kind, setKind] = useState<MovementKind>("EXPENSE");
   const [categories, setCategories] = useState({ INCOME: incomeCategories, EXPENSE: expenseCategories });
   const [categoryId, setCategoryId] = useState("");
   // Motivo a completar al elegir la categoría por uno de sus motivos.
   // `key` remonta el campo para que tome el valor nuevo.
   const [reasonPrefill, setReasonPrefill] = useState({ key: 0, value: "" });
+  // Con tarjeta de crédito el gasto es un consumo: no pide cuenta.
+  const [method, setMethod] = useState<PaymentMethod | null>(null);
+  // Remonta el método de pago al limpiar el formulario.
+  const [methodKey, setMethodKey] = useState(0);
 
   const [state, formAction, pending] = useActionState(createTransaction, null);
   const {
@@ -83,6 +88,8 @@ export function TransactionFormDialog({
       setOpen(false);
       formRef.current?.reset();
       setKind("EXPENSE");
+      setMethod(null);
+      setMethodKey((key) => key + 1);
       setCategoryId("");
       setCategoryError(null);
     }
@@ -96,6 +103,7 @@ export function TransactionFormDialog({
   }
 
   const currentCategories = categories[kind];
+  const isCharge = kind === "EXPENSE" && method === "CREDIT_CARD";
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -115,7 +123,8 @@ export function TransactionFormDialog({
           <Tabs
             value={kind}
             onValueChange={(value) => {
-              setKind(value as TransactionKind);
+              setKind(value as MovementKind);
+              setMethod(null);
               setCategoryId("");
               setCategoryError(null);
             }}
@@ -126,28 +135,32 @@ export function TransactionFormDialog({
             </TabsList>
           </Tabs>
 
-          <div className={kind === "EXPENSE" ? "grid grid-cols-2 gap-4" : "flex flex-col"}>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="tx-account">Cuenta</Label>
-              <Select name="accountId" required>
-                <SelectTrigger id="tx-account" className="w-full">
-                  <SelectValue placeholder="Elegí una cuenta" />
-                </SelectTrigger>
-                <SelectContent>
-                  {accounts.map((account) => (
-                    <SelectItem key={account.id} value={account.id}>
-                      {account.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {accounts.length === 0 && (
-                <p className="text-xs text-muted-foreground">
-                  Primero creá una cuenta en la sección Cuentas.
-                </p>
-              )}
-            </div>
-            {kind === "EXPENSE" && <PaymentMethodSelect id="tx-payment-method" />}
+          <div className={kind === "EXPENSE" && !isCharge ? "grid grid-cols-2 gap-4" : "flex flex-col gap-4"}>
+            {kind === "EXPENSE" && (
+              <PaymentMethodSelect key={methodKey} id="tx-payment-method" onMethodChange={setMethod} />
+            )}
+            {!isCharge && (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="tx-account">Cuenta</Label>
+                <Select name="accountId" required>
+                  <SelectTrigger id="tx-account" className="w-full">
+                    <SelectValue placeholder="Elegí una cuenta" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accounts.map((account) => (
+                      <SelectItem key={account.id} value={account.id}>
+                        {account.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {accounts.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Primero creá una cuenta en la sección Cuentas.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="flex flex-col gap-2">

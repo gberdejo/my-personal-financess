@@ -199,7 +199,7 @@ function BudgetItemRowView({
         <p className="truncate text-sm font-medium">{item.description}</p>
         <p className="truncate text-xs text-muted-foreground">
           {applied
-            ? `Aplicado el ${formatDate(applied.date)} · ${applied.accountName}`
+            ? `Aplicado el ${formatDate(applied.date)} · ${applied.accountName ?? "consumo con tarjeta"}`
             : item.quantity != null && item.unitPrice != null
               ? `${item.quantity} × ${formatCurrency(item.unitPrice)}`
               : item.amount > 0

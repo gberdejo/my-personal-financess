@@ -22,9 +22,7 @@ import {
   PAYMENT_METHODS,
   SCHEDULE_FREQUENCIES,
   SCHEDULE_FREQUENCY_LABELS,
-  SCHEDULED_PAYMENT_TYPE_LABELS,
 } from "@/lib/labels";
-import { cn } from "@/lib/utils";
 import type { PaymentMethod, ScheduledPaymentType, ScheduleFrequency } from "@/generated/prisma/client";
 
 type Option = { id: string; name: string };
@@ -44,18 +42,16 @@ export type ScheduledPaymentValues = {
   // "YYYY-MM-DD"
   startDate: string;
   endDate: string | null;
-  // Solo tarjeta: cierre y pago del próximo estado de cuenta, "YYYY-MM-DD".
-  closingDate: string | null;
-  dueDate: string | null;
   active: boolean;
 };
 
+// Servicios y gastos que se repiten. Las tarjetas se gestionan en Tarjetas
+// (CardFormDialog) y los préstamos en Préstamos.
 export function ScheduledPaymentFormDialog({
   accounts,
   categories,
   payment,
   initial,
-  hasCard = false,
 }: {
   accounts: Option[];
   categories: Option[];
@@ -63,13 +59,10 @@ export function ScheduledPaymentFormDialog({
   payment?: ScheduledPaymentValues & { id: string };
   // Al crear desde una sugerencia.
   initial?: Partial<ScheduledPaymentValues>;
-  // Ya hay una tarjeta programada: avisar que los gastos con tarjeta no se separan.
-  hasCard?: boolean;
 }) {
   const isEdit = Boolean(payment);
   const values = payment ?? initial;
   const [open, setOpen] = useState(false);
-  const [type, setType] = useState<ScheduledPaymentType>(values?.type ?? "BILL");
   const [frequency, setFrequency] = useState<ScheduleFrequency>(values?.frequency ?? "MONTHLY");
   const [categoryId, setCategoryId] = useState(values?.categoryId ?? "");
   const [accountId, setAccountId] = useState(values?.accountId ?? NONE);
@@ -86,7 +79,6 @@ export function ScheduledPaymentFormDialog({
       setOpen(false);
       if (!isEdit && !initial) {
         formRef.current?.reset();
-        setType("BILL");
         setFrequency("MONTHLY");
         setCategoryId("");
         setAccountId(NONE);
@@ -95,8 +87,6 @@ export function ScheduledPaymentFormDialog({
     }
     wasPending.current = pending;
   }, [pending, state, isEdit, initial]);
-
-  const isCard = type === "CREDIT_CARD";
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -121,150 +111,97 @@ export function ScheduledPaymentFormDialog({
         <DialogHeader>
           <DialogTitle>{isEdit ? "Editar pago programado" : "Nuevo pago programado"}</DialogTitle>
           <DialogDescription>
-            {isCard
-              ? "Te avisa cuándo pagar la tarjeta y estima el monto con tus gastos con tarjeta del ciclo."
-              : "Un servicio o gasto que se repite. Al pagarlo se registra como gasto en Transacciones."}
+            Un servicio o gasto que se repite. Al pagarlo se registra como gasto en Transacciones. Las tarjetas de
+            crédito se agregan en Tarjetas.
           </DialogDescription>
         </DialogHeader>
         <form ref={formRef} action={formAction} className="flex flex-col gap-4">
-          {!isEdit && (
-            <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
-              {(["BILL", "CREDIT_CARD"] as const).map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => setType(option)}
-                  className={cn(
-                    "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                    type === option ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  {SCHEDULED_PAYMENT_TYPE_LABELS[option]}
-                </button>
-              ))}
-            </div>
-          )}
-          <input type="hidden" name="type" value={type} />
+          <input type="hidden" name="type" value="BILL" />
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="schedule-name">Nombre</Label>
             <Input
               id="schedule-name"
               name="name"
-              placeholder={isCard ? "Ej. Visa BCP" : "Ej. Luz, Internet, Alquiler"}
+              placeholder="Ej. Luz, Internet, Alquiler"
               defaultValue={values?.name}
               required
             />
           </div>
 
-          {isCard ? (
-            <>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="schedule-closing-date">Fecha de cierre</Label>
-                  <Input
-                    id="schedule-closing-date"
-                    name="closingDate"
-                    type="date"
-                    defaultValue={values?.closingDate ?? undefined}
-                    required
-                  />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="schedule-due-date">Fecha de pago</Label>
-                  <Input
-                    id="schedule-due-date"
-                    name="dueDate"
-                    type="date"
-                    defaultValue={values?.dueDate ?? undefined}
-                    required
-                  />
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Las de tu próximo estado de cuenta. Si el banco las mueve cada mes, cargalas en el cronograma de la
-                tarjeta. El monto estimado suma los gastos con método “Tarjeta de crédito” entre un cierre y el
-                siguiente.
-                {hasCard && !isEdit && " Como los gastos no indican qué tarjeta se usó, todas tus tarjetas suman los mismos gastos."}
-              </p>
-            </>
-          ) : (
-            <>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="schedule-category">Categoría</Label>
-                  <Select name="categoryId" value={categoryId} onValueChange={setCategoryId} required>
-                    <SelectTrigger id="schedule-category" className="w-full">
-                      <SelectValue placeholder="Elegí una categoría" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {categories.map((category) => (
-                        <SelectItem key={category.id} value={category.id}>
-                          {category.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="schedule-amount">Monto estimado (S/)</Label>
-                  <Input
-                    id="schedule-amount"
-                    name="amount"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    inputMode="decimal"
-                    defaultValue={values?.amount ?? undefined}
-                    placeholder="0.00"
-                  />
-                </div>
-              </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="schedule-category">Categoría</Label>
+              <Select name="categoryId" value={categoryId} onValueChange={setCategoryId} required>
+                <SelectTrigger id="schedule-category" className="w-full">
+                  <SelectValue placeholder="Elegí una categoría" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map((category) => (
+                    <SelectItem key={category.id} value={category.id}>
+                      {category.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="schedule-amount">Monto estimado (S/)</Label>
+              <Input
+                id="schedule-amount"
+                name="amount"
+                type="number"
+                step="0.01"
+                min="0"
+                inputMode="decimal"
+                defaultValue={values?.amount ?? undefined}
+                placeholder="0.00"
+              />
+            </div>
+          </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="schedule-frequency">Frecuencia</Label>
-                  <Select
-                    name="frequency"
-                    value={frequency}
-                    onValueChange={(value) => setFrequency(value as ScheduleFrequency)}
-                  >
-                    <SelectTrigger id="schedule-frequency" className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SCHEDULE_FREQUENCIES.map((option) => (
-                        <SelectItem key={option} value={option}>
-                          {SCHEDULE_FREQUENCY_LABELS[option]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="schedule-start">{frequency === "ONCE" ? "Fecha" : "Primera fecha"}</Label>
-                  <Input
-                    id="schedule-start"
-                    name="startDate"
-                    type="date"
-                    defaultValue={values?.startDate ?? toUTCDateInputValue(todayInLima())}
-                    required
-                  />
-                </div>
-              </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="schedule-frequency">Frecuencia</Label>
+              <Select
+                name="frequency"
+                value={frequency}
+                onValueChange={(value) => setFrequency(value as ScheduleFrequency)}
+              >
+                <SelectTrigger id="schedule-frequency" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SCHEDULE_FREQUENCIES.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {SCHEDULE_FREQUENCY_LABELS[option]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="schedule-start">{frequency === "ONCE" ? "Fecha" : "Primera fecha"}</Label>
+              <Input
+                id="schedule-start"
+                name="startDate"
+                type="date"
+                defaultValue={values?.startDate ?? toUTCDateInputValue(todayInLima())}
+                required
+              />
+            </div>
+          </div>
 
-              {frequency !== "ONCE" && (
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="schedule-end">Hasta (opcional)</Label>
-                  <Input id="schedule-end" name="endDate" type="date" defaultValue={values?.endDate ?? undefined} />
-                </div>
-              )}
-            </>
+          {frequency !== "ONCE" && (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="schedule-end">Hasta (opcional)</Label>
+              <Input id="schedule-end" name="endDate" type="date" defaultValue={values?.endDate ?? undefined} />
+            </div>
           )}
 
           <div className="grid grid-cols-2 gap-4">
             <div className="flex flex-col gap-2">
-              <Label htmlFor="schedule-account">{isCard ? "Pagás desde" : "Cuenta"}</Label>
+              <Label htmlFor="schedule-account">Cuenta</Label>
               <Select value={accountId} onValueChange={setAccountId}>
                 <SelectTrigger id="schedule-account" className="w-full">
                   <SelectValue />

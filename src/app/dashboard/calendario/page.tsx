@@ -60,7 +60,6 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
   const pendingPrepayments = prepayments.filter((p) => p.status !== "DONE");
   const pendingPrepaymentsTotal = pendingPrepayments.reduce((sum, p) => sum + p.amount, 0);
   const attention = [...overdue, ...upcoming];
-  const hasCard = payments.some((p) => p.type === "CREDIT_CARD");
   const rouletteFees = summarizeRoulette(operations).fees;
   const registeredFees = summarizeRoulette(operations.filter((op) => op.status === "DONE")).fees;
 
@@ -70,7 +69,7 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
         <h1 className="font-heading text-2xl font-medium italic md:text-3xl">Calendario</h1>
         <div className="flex items-center justify-between gap-2">
           <MonthNav year={year} month={month} />
-          <ScheduledPaymentFormDialog accounts={accounts} categories={categories} hasCard={hasCard} />
+          <ScheduledPaymentFormDialog accounts={accounts} categories={categories} />
         </div>
       </div>
 
@@ -79,9 +78,9 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
           <CardHeader>
             <CardTitle>Sin pagos programados todavía</CardTitle>
             <CardDescription>
-              Agregá tus servicios (luz, agua, internet), gastos fijos y tarjetas de crédito con su fecha de pago.
-              El calendario te muestra qué vence cada mes y, al pagarlos, se registran como gastos. Los préstamos se
-              cargan desde Préstamos y sus cuotas aparecen acá.
+              Agregá tus servicios (luz, agua, internet) y gastos fijos con su fecha de pago. El calendario te muestra
+              qué vence cada mes y, al pagarlos, se registran como gastos. Las tarjetas se agregan en Tarjetas y los
+              préstamos en Préstamos: sus pagos aparecen acá.
             </CardDescription>
           </CardHeader>
         </Card>

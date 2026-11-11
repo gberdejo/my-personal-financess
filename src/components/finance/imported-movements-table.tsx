@@ -275,7 +275,12 @@ function MovementRow({
         </p>
         {(movement.paymentMethod || movement.receiptUrls.length > 0) && (
           <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-            {movement.paymentMethod && <span>{PAYMENT_METHOD_LABELS[movement.paymentMethod]}</span>}
+            {movement.paymentMethod && (
+              <span>
+                {PAYMENT_METHOD_LABELS[movement.paymentMethod]}
+                {movement.cardName && ` · ${movement.cardName}`}
+              </span>
+            )}
             <ReceiptsDialog urls={movement.receiptUrls} title={movement.counterparty ?? undefined} />
           </div>
         )}
@@ -351,7 +356,7 @@ function MovementRow({
             <div key={duplicate.id} className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-muted-foreground">
                 {formatDate(duplicate.date)} · {duplicate.categoryName}
-                {duplicate.reason ? ` · ${duplicate.reason}` : ""} · {duplicate.accountName}
+                {duplicate.reason ? ` · ${duplicate.reason}` : ""} · {duplicate.accountName ?? "consumo con tarjeta"}
               </span>
               <Button
                 variant="outline"

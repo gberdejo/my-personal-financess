@@ -12,7 +12,12 @@ export const ACCOUNT_LABEL = "Cuenta de ahorro";
 export const TRANSACTION_KIND_LABELS: Record<TransactionKind, string> = {
   INCOME: "Ingreso",
   EXPENSE: "Gasto",
+  CARD_PAYMENT: "Pago de tarjeta",
 };
+
+// Lo que se registra a mano o se importa: ingresos y gastos. Los pagos de
+// tarjeta (CARD_PAYMENT) solo los crea el pago de un periodo.
+export type MovementKind = Exclude<TransactionKind, "CARD_PAYMENT">;
 
 export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   CREDIT_CARD: "Tarjeta de crédito",

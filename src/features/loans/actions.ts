@@ -7,6 +7,7 @@ import { requireUserId } from "@/lib/auth";
 import { parseDateOnly } from "@/lib/date";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { isPaymentMethod, PREPAYMENT_MODE_LABELS } from "@/lib/labels";
+import { readExpenseSource } from "@/features/cards/lookup";
 import {
   extendDueDates,
   generateLoanSchedule,
@@ -40,6 +41,7 @@ const MAX_INSTALLMENTS = 480;
 function revalidateLoans() {
   revalidatePath("/dashboard/prestamos", "layout");
   revalidatePath("/dashboard/calendario", "layout");
+  revalidatePath("/dashboard/tarjetas", "layout");
 }
 
 function readText(formData: FormData, field: string) {
@@ -702,20 +704,19 @@ export async function registerPrepayment(
 
   const date = parseDateOnly(readText(formData, "date"));
   const paymentMethod = readText(formData, "paymentMethod");
-  const accountId = readText(formData, "accountId");
   if (!date) return { error: "La fecha no es válida." };
   if (!isPaymentMethod(paymentMethod)) return { error: "Elegí un método de pago." };
-  const account = accountId
-    ? await prisma.account.findFirst({ where: { id: accountId, userId }, select: { id: true } })
-    : null;
-  if (!account) return { error: "Elegí una cuenta." };
+  // Con tarjeta de crédito es un consumo: sin cuenta hasta que se paga la tarjeta.
+  const source = await readExpenseSource(userId, paymentMethod, formData);
+  if ("error" in source) return { error: source.error };
 
   const mode = prepayment.mode as PrepaymentMode;
   await prisma.$transaction(async (tx) => {
     const transaction = await tx.transaction.create({
       data: {
         userId,
-        accountId: account.id,
+        accountId: source.accountId,
+        cardId: source.cardId,
         categoryId,
         kind: "EXPENSE",
         amount: prepayment.amount,

@@ -29,7 +29,7 @@ export function amountLockInfo(transaction: {
   if (rouletteOperation) {
     return {
       kind: "ROULETTE",
-      href: `/dashboard/calendario/pago/${rouletteOperation.scheduledPaymentId}/${toUTCDateInputValue(rouletteOperation.dueDate)}`,
+      href: `/dashboard/tarjetas/${rouletteOperation.scheduledPaymentId}/${toUTCDateInputValue(rouletteOperation.dueDate)}`,
     };
   }
   return null;

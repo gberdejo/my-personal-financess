@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   ArrowLeftRight,
   CalendarDays,
+  CreditCard,
   FileUp,
   HandCoins,
   LayoutDashboard,
@@ -21,6 +22,7 @@ export const NAV_ITEMS: NavItem[] = [
   { title: "Transacciones", url: "/dashboard/transacciones", icon: ArrowLeftRight },
   { title: "Importaciones", url: "/dashboard/importaciones", icon: FileUp },
   { title: "Calendario", url: "/dashboard/calendario", icon: CalendarDays },
+  { title: "Tarjetas", url: "/dashboard/tarjetas", icon: CreditCard },
   { title: "Préstamos", url: "/dashboard/prestamos", icon: HandCoins },
   { title: "Presupuestos", url: "/dashboard/presupuestos", icon: PiggyBank },
   { title: "Categorías", url: "/dashboard/categorias", icon: Tags },

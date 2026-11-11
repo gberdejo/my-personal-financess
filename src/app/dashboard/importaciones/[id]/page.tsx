@@ -139,6 +139,7 @@ export default async function ImportacionPage({
                   movement={m}
                   importId={summary.id}
                   showStatus={tab.status === null}
+                  accounts={accounts}
                   categories={m.kind === "INCOME" ? incomeCategories : expenseCategories}
                   frequentCategoryIds={frequentCategoryIds}
                   reasonSuggestions={reasonSuggestions}
@@ -156,6 +157,7 @@ function MovementLine({
   movement,
   importId,
   showStatus,
+  accounts,
   categories,
   frequentCategoryIds,
   reasonSuggestions,
@@ -163,6 +165,7 @@ function MovementLine({
   movement: ImportedMovementRow;
   importId: string;
   showStatus: boolean;
+  accounts: { id: string; name: string }[];
   // Las del mismo tipo que el movimiento, para editar su transacción.
   categories: { id: string; name: string }[];
   frequentCategoryIds: string[];
@@ -230,6 +233,9 @@ function MovementLine({
               amountLock={transaction.amountLock}
               currentCategoryId={transaction.categoryId}
               currentPaymentMethod={transaction.paymentMethod}
+              currentCardId={transaction.cardId}
+              currentAccountId={transaction.accountId}
+              accounts={accounts}
               currentReason={transaction.reason}
               currentDescription={transaction.description}
               currentReceiptUrls={transaction.receiptUrls}

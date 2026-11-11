@@ -50,7 +50,7 @@ export type CalendarEntry = {
   status: OccurrenceStatusView;
   // Pagado: lo que se pagó. Pendiente: la deuda ingresada (tarjeta) o el estimado.
   amount: number;
-  // En tarjeta, los gastos con tarjeta del ciclo; si no, el monto de la regla.
+  // En tarjeta, sus consumos del ciclo; si no, el monto de la regla.
   estimated: number;
   // Solo tarjeta: deuda del estado de cuenta ingresada para este vencimiento.
   statementAmount: number | null;
@@ -162,12 +162,15 @@ async function buildEntries(userId: string, payments: LoadedPayment[], start: Da
           userId,
           kind: "EXPENSE",
           paymentMethod: "CREDIT_CARD",
+          // Solo consumos: los gastos con tarjeta que tienen cuenta ya se descontaron.
+          accountId: null,
+          cardId: { not: null },
           date: {
             gte: new Date(Math.min(...cycles.map((c) => c.start.getTime()))),
             lt: new Date(Math.max(...cycles.map((c) => c.end.getTime()))),
           },
         },
-        select: { date: true, amount: true },
+        select: { date: true, amount: true, cardId: true },
       })
     : [];
 
@@ -179,10 +182,9 @@ async function buildEntries(userId: string, payments: LoadedPayment[], start: Da
       const ops = operationsByKey.get(key);
       const totals = ops ? summarizeRoulette(ops) : null;
       const loanInstallment = installmentByKey.get(key) ?? null;
+      const inCycle = cycle ? cardExpenses.filter((t) => t.date >= cycle.start && t.date < cycle.end) : [];
       const estimated = cycle
-        ? cardExpenses
-            .filter((t) => t.date >= cycle.start && t.date < cycle.end)
-            .reduce((sum, t) => sum + Number(t.amount), 0)
+        ? inCycle.filter((t) => t.cardId === payment.id).reduce((sum, t) => sum + Number(t.amount), 0)
         : (loanInstallment?.total ?? Number(payment.amount ?? 0));
       const before = occurrence?.status === "PAID" && cycle ? occurrence.estimatedAtPayment : null;
       const cycleChange =
@@ -391,7 +393,8 @@ export type ScheduleSuggestion = {
   name: string;
   categoryId: string;
   categoryName: string;
-  accountId: string;
+  // Null si eran consumos con tarjeta (sin cuenta).
+  accountId: string | null;
   paymentMethod: PaymentMethod | null;
   amount: number;
   day: number;

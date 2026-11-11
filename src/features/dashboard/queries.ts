@@ -52,7 +52,7 @@ export async function getDashboardSummaryForRange(start: Date, end: Date, accoun
       amount: Number(t.amount),
       kind: t.kind,
       categoryName: t.category.name,
-      accountName: t.account.name,
+      accountName: t.account?.name ?? null,
     })),
   };
 }

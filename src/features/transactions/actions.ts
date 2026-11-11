@@ -8,6 +8,7 @@ import { isPaymentMethod } from "@/lib/labels";
 import { parseReceiptUrls, receiptUrlsError } from "@/lib/receipts";
 import { saveCategoryReason } from "@/features/categories/reasons";
 import { amountLock } from "@/lib/transaction-lock";
+import { loadUserCards, readChargeCard, readExpenseSource } from "@/features/cards/lookup";
 import type { PaymentMethod, TransactionKind } from "@/generated/prisma/client";
 
 export type ActionState = { error?: string } | null;
@@ -19,6 +20,7 @@ function revalidateAll() {
   // Un gasto con tarjeta cambia el estimado del calendario, y borrar el gasto
   // de una cuota pagada la devuelve a pendiente.
   revalidatePath("/dashboard/calendario", "layout");
+  revalidatePath("/dashboard/tarjetas", "layout");
   revalidatePath("/dashboard/prestamos", "layout");
   // Borrar un gasto aplicado desde un presupuesto devuelve su línea a pendiente.
   revalidatePath("/dashboard/presupuestos", "layout");
@@ -55,7 +57,6 @@ export async function createTransaction(_prevState: ActionState, formData: FormD
   const userId = await requireUserId();
 
   const kind = String(formData.get("kind") ?? "") as TransactionKind;
-  const accountId = String(formData.get("accountId") ?? "");
   const categoryId = String(formData.get("categoryId") ?? "");
   const amount = Number(formData.get("amount"));
   const reason = readText(formData, "reason");
@@ -65,7 +66,6 @@ export async function createTransaction(_prevState: ActionState, formData: FormD
   const paymentMethod = kind === "EXPENSE" ? readPaymentMethod(formData) : null;
 
   if (kind !== "INCOME" && kind !== "EXPENSE") return { error: "Tipo de movimiento inválido." };
-  if (!accountId) return { error: "Elegí una cuenta." };
   if (!categoryId) return { error: "Elegí una categoría." };
   if (!amount || amount <= 0) return { error: "El monto debe ser mayor a 0." };
   if (kind === "EXPENSE" && !paymentMethod) return { error: "Elegí un método de pago." };
@@ -75,9 +75,9 @@ export async function createTransaction(_prevState: ActionState, formData: FormD
   if (!date) return { error: "La fecha no es válida." };
   const receipts = readReceiptUrls(formData);
   if ("error" in receipts) return { error: receipts.error };
-
-  const account = await prisma.account.findFirst({ where: { id: accountId, userId } });
-  if (!account) return { error: "Cuenta inválida." };
+  // Un gasto con tarjeta de crédito es un consumo: sin cuenta hasta que se paga la tarjeta.
+  const source = await readExpenseSource(userId, paymentMethod, formData);
+  if ("error" in source) return { error: source.error };
 
   const category = await prisma.category.findFirst({
     where: { id: categoryId, kind, OR: [{ userId: null }, { userId }] },
@@ -87,7 +87,8 @@ export async function createTransaction(_prevState: ActionState, formData: FormD
   await prisma.transaction.create({
     data: {
       userId,
-      accountId,
+      accountId: source.accountId,
+      cardId: source.cardId,
       categoryId,
       kind,
       amount,
@@ -103,6 +104,30 @@ export async function createTransaction(_prevState: ActionState, formData: FormD
 
   revalidateAll();
   return null;
+}
+
+// De dónde sale un gasto que se edita:
+// - un consumo (sin cuenta) que sigue con tarjeta puede cambiar de tarjeta;
+// - un consumo que pasa a otro método sale de la cuenta elegida;
+// - un gasto con cuenta pasa a consumo solo con tarjeta y "Pasar a consumo" (`asCharge`);
+// - si no, conserva su cuenta (los gastos con tarjeta anteriores quedan ya descontados).
+async function readUpdatedSource(
+  userId: string,
+  transaction: { accountId: string | null; cardId: string | null },
+  paymentMethod: PaymentMethod | null,
+  formData: FormData
+): Promise<{ accountId: string | null; cardId: string | null } | { error: string }> {
+  const isCharge = transaction.accountId === null;
+  if (paymentMethod === "CREDIT_CARD" && (isCharge || formData.get("asCharge") === "on")) {
+    const card = await readChargeCard(userId, formData);
+    return "error" in card ? card : { accountId: null, cardId: card.cardId };
+  }
+  if (isCharge) return readExpenseSource(userId, paymentMethod, formData);
+  if (paymentMethod !== "CREDIT_CARD") return { accountId: transaction.accountId, cardId: null };
+  // Gasto anterior con tarjeta que sigue descontado de su cuenta: la tarjeta es solo informativa.
+  const raw = String(formData.get("cardId") ?? "").trim();
+  const cards = raw ? await loadUserCards(userId) : [];
+  return { accountId: transaction.accountId, cardId: cards.some((c) => c.id === raw) ? raw : transaction.cardId };
 }
 
 export async function updateTransaction(
@@ -123,11 +148,16 @@ export async function updateTransaction(
     select: {
       kind: true,
       amount: true,
+      accountId: true,
+      cardId: true,
       loanPrepayment: { select: { id: true } },
       rouletteOperation: { select: { id: true } },
     },
   });
   if (!transaction) return { error: "No se pudo actualizar el movimiento." };
+  if (transaction.kind === "CARD_PAYMENT") {
+    return { error: "Un pago de tarjeta se deshace desde su periodo en Tarjetas." };
+  }
 
   // Gastos con monto fijo (ver `amountLock`): se conserva el que tienen aunque
   // llegue otro en el formulario.
@@ -147,6 +177,10 @@ export async function updateTransaction(
 
   const paymentMethod = transaction.kind === "EXPENSE" ? readPaymentMethod(formData) : null;
   if (transaction.kind === "EXPENSE" && !paymentMethod) return { error: "Elegí un método de pago." };
+  const source = transaction.kind === "EXPENSE"
+    ? await readUpdatedSource(userId, transaction, paymentMethod, formData)
+    : { accountId: transaction.accountId, cardId: null };
+  if ("error" in source) return { error: source.error };
 
   const reason = readText(formData, "reason");
   const description = readText(formData, "description");
@@ -157,7 +191,17 @@ export async function updateTransaction(
   await prisma.$transaction([
     prisma.transaction.update({
       where: { id: transactionId },
-      data: { date, amount, categoryId, paymentMethod, reason, description, receiptUrls: receipts.urls },
+      data: {
+        date,
+        amount,
+        categoryId,
+        paymentMethod,
+        accountId: source.accountId,
+        cardId: source.cardId,
+        reason,
+        description,
+        receiptUrls: receipts.urls,
+      },
     }),
     prisma.scheduledOccurrence.updateMany({ where: { transactionId }, data: { amount } }),
   ]);

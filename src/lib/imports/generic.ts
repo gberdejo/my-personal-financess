@@ -5,8 +5,9 @@ import { parseReceiptUrls, receiptUrlsError } from "@/lib/receipts";
 
 // Plantilla genérica de movimientos (public/plantillas/movimientos.csv), para
 // cargar lo de cualquier banco o app copiándolo en ella. Encabezado:
-// fecha | hora | tipo | monto | contraparte | descripcion | categoria | motivo | metodo_pago | comprobantes
-// Obligatorios: fecha y monto. Sin "tipo", un monto negativo es gasto.
+// fecha | hora | tipo | monto | contraparte | descripcion | categoria | motivo | metodo_pago | tarjeta | comprobantes
+// Obligatorios: fecha y monto. Sin "tipo", un monto negativo es gasto. "tarjeta" es
+// el nombre de la tarjeta de crédito en Tarjetas (implica ese método de pago).
 
 type Column =
   | "date"
@@ -18,6 +19,7 @@ type Column =
   | "category"
   | "reason"
   | "paymentMethod"
+  | "card"
   | "receipts";
 
 const HEADERS: Record<Column, string[]> = {
@@ -30,6 +32,7 @@ const HEADERS: Record<Column, string[]> = {
   category: ["categoria"],
   reason: ["motivo"],
   paymentMethod: ["metodo pago", "metodo de pago", "metodo"],
+  card: ["tarjeta", "tarjeta de credito"],
   receipts: ["comprobantes", "comprobante", "links", "link"],
 };
 
@@ -128,12 +131,18 @@ export function parseGeneric(rows: string[][]): ParsedImport {
     }
 
     const rawMethod = cell(cells, "paymentMethod");
-    const paymentMethod = rawMethod ? PAYMENT_METHODS[normalizeHeader(rawMethod)] : null;
+    const cardName = kind === "EXPENSE" ? cell(cells, "card") || null : null;
+    // Con tarjeta y sin método, el método es tarjeta de crédito.
+    const paymentMethod = rawMethod ? PAYMENT_METHODS[normalizeHeader(rawMethod)] : cardName ? "CREDIT_CARD" : null;
     if (rawMethod && !paymentMethod) {
       errors.push({
         row,
         message: `El método de pago "${rawMethod}" no es válido (efectivo, yape, plin, tarjeta de débito, tarjeta de crédito o transferencia).`,
       });
+      continue;
+    }
+    if (cardName && paymentMethod !== "CREDIT_CARD") {
+      errors.push({ row, message: `La tarjeta "${cardName}" solo va con método de pago tarjeta de crédito.` });
       continue;
     }
 
@@ -156,6 +165,7 @@ export function parseGeneric(rows: string[][]): ParsedImport {
       categoryName: cell(cells, "category") || null,
       reason: cell(cells, "reason") || null,
       paymentMethod: kind === "EXPENSE" ? paymentMethod : null,
+      cardName,
       receiptUrls: receipts.urls,
     });
   }

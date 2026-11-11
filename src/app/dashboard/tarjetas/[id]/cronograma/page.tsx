@@ -30,11 +30,11 @@ export default async function CronogramaTarjetaPage({
   return (
     <div className="flex flex-col gap-4">
       <Link
-        href="/dashboard/calendario"
+        href={`/dashboard/tarjetas/${schedule.payment.id}`}
         className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="size-4" />
-        Calendario
+        {schedule.payment.name}
       </Link>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -74,7 +74,7 @@ export default async function CronogramaTarjetaPage({
                 amount: row.entry.amount,
                 hasStatement: row.entry.statementAmount !== null,
                 rouletteCount: row.entry.roulette?.count ?? 0,
-                href: `/dashboard/calendario/pago/${schedule.payment.id}/${row.entry.dueDateValue}`,
+                href: `/dashboard/tarjetas/${schedule.payment.id}/${row.entry.dueDateValue}`,
               }
             : null,
         }))}

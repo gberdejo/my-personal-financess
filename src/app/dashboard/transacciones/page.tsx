@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { FileUp } from "lucide-react";
+import { CreditCard, FileUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -14,6 +14,7 @@ import { TransactionsPeriodFilter } from "@/components/finance/transactions-peri
 import { ConfirmDeleteButton } from "@/components/finance/confirm-delete-button";
 import { EditTransactionDialog } from "@/components/finance/edit-transaction-dialog";
 import { ReceiptsDialog } from "@/components/finance/receipts-dialog";
+import { ChargeStatusChip } from "@/components/finance/charge-status-chip";
 import { AccountFilter } from "@/components/finance/account-filter";
 import { PaymentMethodFilter } from "@/components/finance/payment-method-filter";
 import { TransactionFormDialog } from "@/components/finance/transaction-form-dialog";
@@ -21,6 +22,7 @@ import { getAccounts } from "@/features/accounts/queries";
 import { getCategories, getFrequentCategoryIds, getReasonSuggestions } from "@/features/categories/queries";
 import { deleteTransaction } from "@/features/transactions/actions";
 import { getTransactionsForRange, type PaymentMethodFilter as MethodFilter } from "@/features/transactions/queries";
+import { getCreditCardOptions } from "@/features/cards/queries";
 import { monthRange, parseMonthParam, shiftDay, todayInLima, toUTCDateInputValue } from "@/lib/date";
 import { getPresetRange, isPeriodPreset, periodNowInLima } from "@/lib/period";
 import { formatCurrency, formatTransactionDateTime } from "@/lib/format";
@@ -49,6 +51,8 @@ type SearchParams = {
   month?: string;
   method?: string;
   account?: string;
+  // Con method=CREDIT_CARD: id de la tarjeta.
+  tarjeta?: string;
 };
 
 // Periodo elegido: `?periodo=` (con `desde`/`hasta` si es personalizado), o
@@ -85,13 +89,16 @@ export default async function TransaccionesPage({ searchParams }: { searchParams
   const method = parseMethodParam(params.method);
   const accountParam = params.account;
 
-  const accounts = await getAccounts();
+  const [accounts, cards] = await Promise.all([getAccounts(), getCreditCardOptions()]);
   // Solo una cuenta propia: un id ajeno o viejo en la URL se ignora.
   const account = accounts.find((a) => a.id === accountParam) ?? null;
+  // Lo mismo con la tarjeta; solo cuenta junto con el método tarjeta de crédito.
+  const filteredCard = cards.find((c) => c.id === params.tarjeta);
+  const cardFilter = method === "CREDIT_CARD" && filteredCard ? { id: filteredCard.id, label: filteredCard.name } : null;
 
   const [transactions, incomeCategories, expenseCategories, reasonSuggestions, frequentCategoryIds] =
     await Promise.all([
-      getTransactionsForRange(range.start, range.end, method ?? undefined, account?.id),
+      getTransactionsForRange(range.start, range.end, method ?? undefined, account?.id, cardFilter?.id),
       getCategories("INCOME"),
       getCategories("EXPENSE"),
       getReasonSuggestions(),
@@ -105,7 +112,7 @@ export default async function TransaccionesPage({ searchParams }: { searchParams
         <div className="flex flex-wrap items-center gap-2">
           <TransactionsPeriodFilter value={period} />
           <AccountFilter accounts={accounts} value={account?.id ?? null} />
-          <PaymentMethodFilter value={method} />
+          <PaymentMethodFilter value={method} card={cardFilter?.id ?? null} />
           <Button variant="outline" asChild>
             <Link href="/dashboard/importaciones">
               <FileUp />
@@ -128,17 +135,23 @@ export default async function TransaccionesPage({ searchParams }: { searchParams
           <span className="font-medium text-income tabular-nums">
             {formatCurrency(transactions.filter((t) => t.kind === "INCOME").reduce((sum, t) => sum + t.amount, 0))}
           </span>{" "}
-          · gastos{" "}
+          · salidas{" "}
           <span className="font-medium text-expense tabular-nums">
-            {formatCurrency(transactions.filter((t) => t.kind === "EXPENSE").reduce((sum, t) => sum + t.amount, 0))}
+            {formatCurrency(transactions.filter((t) => t.kind !== "INCOME").reduce((sum, t) => sum + t.amount, 0))}
           </span>
+          {transactions.some((t) => t.kind === "CARD_PAYMENT") && " (incluye pagos de tarjeta)"}
         </p>
       )}
 
       {method && transactions.length > 0 && (
         <p className="text-sm text-muted-foreground">
           {transactions.length === 1 ? "1 gasto" : `${transactions.length} gastos`}{" "}
-          {method === "NONE" ? "sin método de pago" : `con ${PAYMENT_METHOD_LABELS[method]}`} en el periodo:{" "}
+          {cardFilter
+            ? `con ${cardFilter.label}`
+            : method === "NONE"
+              ? "sin método de pago"
+              : `con ${PAYMENT_METHOD_LABELS[method]}`}{" "}
+          en el periodo:{" "}
           <span className="font-medium text-expense tabular-nums">
             {formatCurrency(transactions.reduce((sum, t) => sum + t.amount, 0))}
           </span>
@@ -207,12 +220,28 @@ export default async function TransaccionesPage({ searchParams }: { searchParams
                   <TableCell>
                     {t.categoryName}
                     {t.paymentMethod && (
-                      <p className="text-xs text-muted-foreground md:hidden">{PAYMENT_METHOD_LABELS[t.paymentMethod]}</p>
+                      <p className="text-xs text-muted-foreground md:hidden">
+                        {PAYMENT_METHOD_LABELS[t.paymentMethod]}
+                        {t.cardName && ` · ${t.cardName}`}
+                      </p>
+                    )}
+                    {t.charge && <ChargeStatusChip status={t.charge.status} className="mt-1 sm:hidden" />}
+                  </TableCell>
+                  <TableCell className="hidden sm:table-cell">
+                    {t.charge ? (
+                      // Consumo: todavía no salió de ninguna cuenta (o salió con el pago del periodo).
+                      <Link href={t.charge.href} className="flex flex-col gap-1 hover:underline">
+                        <span>{t.cardName}</span>
+                        <ChargeStatusChip status={t.charge.status} />
+                      </Link>
+                    ) : (
+                      t.accountName
                     )}
                   </TableCell>
-                  <TableCell className="hidden sm:table-cell">{t.accountName}</TableCell>
                   <TableCell className="hidden md:table-cell">
-                    {t.kind === "EXPENSE" ? (
+                    {t.kind === "CARD_PAYMENT" ? (
+                      <span className="text-muted-foreground">Pago de tarjeta</span>
+                    ) : t.kind === "EXPENSE" ? (
                       t.paymentMethod ? (
                         PAYMENT_METHOD_LABELS[t.paymentMethod]
                       ) : (
@@ -233,6 +262,17 @@ export default async function TransaccionesPage({ searchParams }: { searchParams
                   <TableCell>
                     <div className="flex items-center justify-end">
                       <ReceiptsDialog urls={t.receiptUrls} title={t.reason ?? t.description ?? undefined} />
+                      {t.kind === "CARD_PAYMENT" ? (
+                        // El pago se ve y se deshace desde el periodo que pagó.
+                        t.cardPaymentHref && (
+                          <Button asChild variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
+                            <Link href={t.cardPaymentHref}>
+                              <CreditCard className="size-4" />
+                              <span className="sr-only">Ver el periodo pagado</span>
+                            </Link>
+                          </Button>
+                        )
+                      ) : (
                       <EditTransactionDialog
                         transactionId={t.id}
                         kind={t.kind}
@@ -241,6 +281,9 @@ export default async function TransaccionesPage({ searchParams }: { searchParams
                         amountLock={t.amountLock}
                         currentCategoryId={t.categoryId}
                         currentPaymentMethod={t.paymentMethod}
+                        currentCardId={t.cardId}
+                        currentAccountId={t.accountId}
+                        accounts={accounts}
                         currentReason={t.reason}
                         currentDescription={t.description}
                         currentReceiptUrls={t.receiptUrls}
@@ -248,9 +291,14 @@ export default async function TransaccionesPage({ searchParams }: { searchParams
                         frequentCategoryIds={frequentCategoryIds}
                         reasonSuggestions={reasonSuggestions}
                       />
+                      )}
                       <ConfirmDeleteButton
-                        title="¿Eliminar este movimiento?"
-                        description="Esta acción no se puede deshacer."
+                        title={t.kind === "CARD_PAYMENT" ? "¿Eliminar este pago de tarjeta?" : "¿Eliminar este movimiento?"}
+                        description={
+                          t.kind === "CARD_PAYMENT"
+                            ? "El periodo de la tarjeta vuelve a quedar pendiente y el monto vuelve a la cuenta."
+                            : "Esta acción no se puede deshacer."
+                        }
                         onConfirm={deleteTransaction.bind(null, t.id)}
                       />
                     </div>

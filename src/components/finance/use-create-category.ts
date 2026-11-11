@@ -2,16 +2,16 @@
 
 import { useState, useTransition } from "react";
 import { createCategory } from "@/features/categories/actions";
-import type { TransactionKind } from "@/generated/prisma/client";
+import type { MovementKind } from "@/lib/labels";
 
-type CreatedCategory = { id: string; name: string; kind: TransactionKind };
+type CreatedCategory = { id: string; name: string; kind: MovementKind };
 
 // Crea una categoría desde el buscador de categorías de un formulario.
 export function useCreateCategory(onCreated: (category: CreatedCategory) => void) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  function create(name: string, kind: TransactionKind) {
+  function create(name: string, kind: MovementKind) {
     if (!name) return;
     const formData = new FormData();
     formData.set("name", name);

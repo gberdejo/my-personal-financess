@@ -48,7 +48,8 @@ export async function getReasonSuggestions(): Promise<Record<string, ReasonSugge
     }),
     prisma.transaction.groupBy({
       by: ["categoryId", "reason"],
-      where: { userId, reason: { not: null } },
+      // Los pagos de tarjeta no son gastos: su motivo no se sugiere.
+      where: { userId, reason: { not: null }, kind: { not: "CARD_PAYMENT" } },
       _count: { _all: true },
     }),
   ]);
@@ -91,7 +92,7 @@ export async function getFrequentCategoryIds() {
 
   const rows = await prisma.transaction.groupBy({
     by: ["categoryId"],
-    where: { userId, date: { gte: since } },
+    where: { userId, date: { gte: since }, kind: { not: "CARD_PAYMENT" } },
     _count: { categoryId: true },
     orderBy: { _count: { categoryId: "desc" } },
     take: FREQUENT_LIMIT,

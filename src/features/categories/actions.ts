@@ -4,12 +4,12 @@ import { revalidatePath } from "next/cache";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/auth";
-import type { TransactionKind } from "@/generated/prisma/client";
+import type { MovementKind } from "@/lib/labels";
 import { saveCategoryReason } from "./reasons";
 
 export type CategoryActionState = {
   error?: string;
-  category?: { id: string; name: string; kind: TransactionKind; icon: string | null };
+  category?: { id: string; name: string; kind: MovementKind; icon: string | null };
 } | null;
 
 export async function createCategory(
@@ -19,7 +19,7 @@ export async function createCategory(
   const userId = await requireUserId();
 
   const name = String(formData.get("name") ?? "").trim();
-  const kind = String(formData.get("kind") ?? "") as TransactionKind;
+  const kind = String(formData.get("kind") ?? "") as MovementKind;
 
   if (!name) return { error: "El nombre es obligatorio." };
   if (kind !== "INCOME" && kind !== "EXPENSE") return { error: "Categoría inválida." };
@@ -29,7 +29,7 @@ export async function createCategory(
       data: { userId, name, kind },
     });
     revalidatePath("/dashboard/transacciones");
-    return { category: { id: category.id, name: category.name, kind: category.kind, icon: category.icon } };
+    return { category: { id: category.id, name: category.name, kind, icon: category.icon } };
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       return { error: "Ya tenés una categoría con ese nombre." };
