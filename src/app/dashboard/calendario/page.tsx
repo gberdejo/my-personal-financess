@@ -20,6 +20,7 @@ import {
 } from "@/features/schedule/queries";
 import { daysUntil, monthLabel, monthRange, parseMonthParam } from "@/lib/date";
 import { formatCurrency } from "@/lib/format";
+import { publicOrigin } from "@/lib/origin";
 import { cn } from "@/lib/utils";
 
 function total(entries: CalendarEntry[]) {
@@ -56,11 +57,9 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
       getCalendarFeed(),
     ]);
 
-  const requestHeaders = await headers();
-  const host = requestHeaders.get("host");
-  const protocol = requestHeaders.get("x-forwarded-proto") ?? "https";
-  const feedPath = feed && host ? `//${host}/api/calendario/${feed.token}` : null;
-  const httpsUrl = feedPath ? `${protocol}:${feedPath}` : null;
+  const site = publicOrigin(await headers());
+  const feedPath = feed && site ? `//${site.host}/api/calendario/${feed.token}` : null;
+  const httpsUrl = feedPath && site ? `${site.protocol}:${feedPath}` : null;
   const webcalUrl = feedPath ? `webcal:${feedPath}` : null;
 
   const pendingInMonth = entries.filter((e) => e.status === "PENDING" || e.status === "OVERDUE");
