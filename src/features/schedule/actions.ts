@@ -268,7 +268,7 @@ export async function updateScheduledPayment(
 
 // Guarda los 12 meses de un año. Cada mes lleva `closing-<m>` y `due-<m>`
 // (m = 0–11); un mes vacío vuelve a la regla. Lo que colgaba de un vencimiento
-// (pago, deuda, ruleteos) se mueve a su nueva fecha.
+// (pago, deuda) se mueve a su nueva fecha.
 export async function saveBillingSchedule(
   scheduledPaymentId: string,
   year: number,

@@ -100,7 +100,7 @@ export default async function TarjetaPage({
           {!card.hasCharges && (
             <ConfirmDeleteButton
               title={`¿Eliminar “${card.name}”?`}
-              description="Se borran su cronograma, la deuda ingresada y los ruleteos, y deja de salir en el calendario. Los pagos que ya hiciste se conservan en su cuenta."
+              description="Se borran su cronograma, la deuda ingresada, y deja de salir en el calendario. Los pagos que ya hiciste se conservan en su cuenta."
               onConfirm={deleteCard.bind(null, card.id)}
             />
           )}
@@ -174,7 +174,7 @@ export default async function TarjetaPage({
                     </OccurrenceDialog>
                     <Button asChild size="sm" variant="ghost">
                       <Link href={`/dashboard/tarjetas/${card.id}/${entry.dueDateValue}`}>
-                        Deuda y ruleteo
+                        Deuda del estado de cuenta
                         <ArrowRight />
                       </Link>
                     </Button>

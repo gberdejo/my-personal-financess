@@ -8,7 +8,6 @@ import { ScheduledPaymentsList } from "@/components/finance/scheduled-payments-l
 import { getAccounts } from "@/features/accounts/queries";
 import { getCategories } from "@/features/categories/queries";
 import { getPrepaymentsForRange } from "@/features/loans/queries";
-import { getRouletteOpsForRange } from "@/features/roulette/queries";
 import {
   getCalendarMonth,
   getScheduledPayments,
@@ -18,7 +17,6 @@ import {
 } from "@/features/schedule/queries";
 import { daysUntil, monthLabel, monthRange, parseMonthParam } from "@/lib/date";
 import { formatCurrency } from "@/lib/format";
-import { summarizeRoulette } from "@/lib/roulette";
 import { cn } from "@/lib/utils";
 
 function total(entries: CalendarEntry[]) {
@@ -43,10 +41,9 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
   const { year, month } = parseMonthParam(monthParam);
   const range = monthRange(year, month);
 
-  const [entries, operations, prepayments, { overdue, upcoming }, payments, suggestions, accounts, categories] =
+  const [entries, prepayments, { overdue, upcoming }, payments, suggestions, accounts, categories] =
     await Promise.all([
       getCalendarMonth(year, month),
-      getRouletteOpsForRange(range.start, range.end),
       getPrepaymentsForRange(range.start, range.end),
       getUpcomingAndOverdue(),
       getScheduledPayments(),
@@ -60,8 +57,6 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
   const pendingPrepayments = prepayments.filter((p) => p.status !== "DONE");
   const pendingPrepaymentsTotal = pendingPrepayments.reduce((sum, p) => sum + p.amount, 0);
   const attention = [...overdue, ...upcoming];
-  const rouletteFees = summarizeRoulette(operations).fees;
-  const registeredFees = summarizeRoulette(operations.filter((op) => op.status === "DONE")).fees;
 
   return (
     <div className="flex flex-col gap-4">
@@ -86,7 +81,7 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
         </Card>
       ) : (
         <>
-          <div className={cn("grid gap-4", operations.length > 0 ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3")}>
+          <div className="grid gap-4 sm:grid-cols-3">
             <Card>
               <CardHeader>
                 <CardDescription>Por pagar en {monthLabel(year, month).toLowerCase()}</CardDescription>
@@ -125,27 +120,12 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
                 </p>
               </CardHeader>
             </Card>
-            {operations.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardDescription>Comisiones de ruleteo</CardDescription>
-                  <CardTitle className="font-sans text-2xl not-italic font-semibold tabular-nums text-expense">
-                    {formatCurrency(rouletteFees)}
-                  </CardTitle>
-                  <p className="text-xs text-muted-foreground">
-                    {countLabel(operations.length, "operación", "operaciones")} ·{" "}
-                    <span className="tabular-nums">{formatCurrency(registeredFees)}</span> registradas
-                  </p>
-                </CardHeader>
-              </Card>
-            )}
           </div>
 
           <CalendarMonthGrid
             year={year}
             month={month}
             entries={entries}
-            operations={operations}
             prepayments={prepayments}
             accounts={accounts}
           />

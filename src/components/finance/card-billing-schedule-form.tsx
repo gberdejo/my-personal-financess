@@ -2,7 +2,7 @@
 
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ClipboardPaste, Repeat } from "lucide-react";
+import { ClipboardPaste } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -36,7 +36,6 @@ export type BillingScheduleFormRow = {
     status: OccurrenceStatusView;
     amount: number;
     hasStatement: boolean;
-    rouletteCount: number;
     href: string;
   } | null;
 };
@@ -203,7 +202,6 @@ export function CardBillingScheduleForm({
                       href={row.entry.href}
                       className="flex items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors hover:bg-muted"
                     >
-                      {row.entry.rouletteCount > 0 && <Repeat className="size-3 text-muted-foreground" />}
                       <span className="flex flex-col items-end">
                         <span className="font-medium">{STATUS_TEXT[row.entry.status]}</span>
                         <span className="text-muted-foreground tabular-nums">

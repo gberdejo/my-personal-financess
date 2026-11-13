@@ -222,7 +222,6 @@ export async function getCardDetail(
       include: {
         category: { select: { name: true } },
         loanPrepayment: { select: { scheduledPaymentId: true } },
-        rouletteOperation: { select: { scheduledPaymentId: true, dueDate: true } },
       },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
     }),

@@ -10,7 +10,6 @@ import {
   toUTCDateInputValue,
 } from "@/lib/date";
 import { normalizeReason } from "@/lib/reason";
-import { summarizeRoulette } from "@/lib/roulette";
 import {
   billingMonth,
   monthStart,
@@ -57,8 +56,6 @@ export type CalendarEntry = {
   // Solo tarjeta pagada: los gastos con tarjeta del ciclo cambiaron desde que
   // se marcó (`before` al marcarla, `after` ahora). null si no cambiaron.
   cycleChange: { before: number; after: number } | null;
-  // Solo tarjeta: ruleteos planificados para cubrir este vencimiento.
-  roulette: { count: number; received: number; fees: number } | null;
   // Solo préstamo: desglose de la cuota del cronograma.
   installment: LoanInstallmentDetail | null;
   transactionId: string | null;
@@ -92,7 +89,7 @@ function entryKey(scheduledPaymentId: string, dueDate: Date) {
 
 // Cruza las fechas de cada regla en [start, end) con las cuotas ya resueltas y,
 // para tarjetas, suma los gastos con tarjeta de cada ciclo y agrega la deuda
-// ingresada y el ruleteo planificado.
+// ingresada.
 async function buildEntries(userId: string, payments: LoadedPayment[], start: Date, end: Date) {
   const today = todayInLima();
 
@@ -111,13 +108,9 @@ async function buildEntries(userId: string, payments: LoadedPayment[], start: Da
     dueDate: { gte: start, lt: end },
   };
   const loanIds = [...new Set(dated.filter((d) => d.payment.type === "LOAN").map((d) => d.payment.id))];
-  const [stored, statements, operations, installments, installmentCounts] = await Promise.all([
+  const [stored, statements, installments, installmentCounts] = await Promise.all([
     prisma.scheduledOccurrence.findMany({ where: inRange }),
     prisma.cardStatement.findMany({ where: inRange }),
-    prisma.rouletteOperation.findMany({
-      where: inRange,
-      select: { scheduledPaymentId: true, dueDate: true, charge: true, fee: true },
-    }),
     loanIds.length
       ? prisma.loanInstallment.findMany({ where: { ...inRange, scheduledPaymentId: { in: loanIds } } })
       : [],
@@ -147,13 +140,6 @@ async function buildEntries(userId: string, payments: LoadedPayment[], start: Da
   );
   const storedByKey = new Map(stored.map((o) => [entryKey(o.scheduledPaymentId, o.dueDate), o]));
   const statementByKey = new Map(statements.map((s) => [entryKey(s.scheduledPaymentId, s.dueDate), Number(s.amount)]));
-  const operationsByKey = new Map<string, { charge: number; fee: number }[]>();
-  for (const op of operations) {
-    const key = entryKey(op.scheduledPaymentId, op.dueDate);
-    const list = operationsByKey.get(key) ?? [];
-    list.push({ charge: Number(op.charge), fee: Number(op.fee) });
-    operationsByKey.set(key, list);
-  }
 
   const cycles = dated.flatMap((d) => (d.cycle ? [d.cycle] : []));
   const cardExpenses = cycles.length
@@ -179,8 +165,6 @@ async function buildEntries(userId: string, payments: LoadedPayment[], start: Da
       const key = entryKey(payment.id, dueDate);
       const occurrence = storedByKey.get(key);
       const statementAmount = statementByKey.get(key) ?? null;
-      const ops = operationsByKey.get(key);
-      const totals = ops ? summarizeRoulette(ops) : null;
       const loanInstallment = installmentByKey.get(key) ?? null;
       const inCycle = cycle ? cardExpenses.filter((t) => t.date >= cycle.start && t.date < cycle.end) : [];
       const estimated = cycle
@@ -205,7 +189,6 @@ async function buildEntries(userId: string, payments: LoadedPayment[], start: Da
         estimated,
         statementAmount,
         cycleChange,
-        roulette: ops && totals ? { count: ops.length, received: totals.received, fees: totals.fees } : null,
         installment: loanInstallment
           ? {
               number: loanInstallment.number,
@@ -225,7 +208,7 @@ async function buildEntries(userId: string, payments: LoadedPayment[], start: Da
     .sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime() || a.name.localeCompare(b.name));
 }
 
-// Un vencimiento puntual (para la página de deuda y ruleteo de una tarjeta).
+// Un vencimiento puntual (para la página de deuda del estado de cuenta de una tarjeta).
 export async function getCalendarEntry(scheduledPaymentId: string, dueDateValue: string) {
   const userId = await requireUserId();
   const dueDate = parseDateOnly(dueDateValue);

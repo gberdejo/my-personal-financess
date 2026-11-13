@@ -4,8 +4,56 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/auth";
+import { parseDateOnly } from "@/lib/date";
+import { isDueDateOf } from "@/features/schedule/periods";
 
 export type CardActionState = { error?: string } | null;
+
+// Vencimiento de una tarjeta propia, validado contra su regla.
+async function findCardDue(userId: string, scheduledPaymentId: string, dueDateValue: string) {
+  const dueDate = parseDateOnly(dueDateValue);
+  if (!dueDate) return null;
+  const payment = await prisma.scheduledPayment.findFirst({
+    where: { id: scheduledPaymentId, userId, type: "CREDIT_CARD" },
+  });
+  if (!payment || !(await isDueDateOf(payment, dueDate))) return null;
+  return { payment, dueDate };
+}
+
+// Deuda del estado de cuenta de un vencimiento. Vacío = se borra y el calendario
+// vuelve al estimado.
+export async function saveCardStatement(
+  scheduledPaymentId: string,
+  dueDateValue: string,
+  _prevState: CardActionState,
+  formData: FormData
+): Promise<CardActionState> {
+  const userId = await requireUserId();
+
+  const due = await findCardDue(userId, scheduledPaymentId, dueDateValue);
+  if (!due) return { error: "Vencimiento inválido." };
+
+  const raw = String(formData.get("amount") ?? "").trim();
+  const where = { scheduledPaymentId_dueDate: { scheduledPaymentId: due.payment.id, dueDate: due.dueDate } };
+
+  if (!raw) {
+    await prisma.cardStatement.deleteMany({ where: { scheduledPaymentId: due.payment.id, dueDate: due.dueDate } });
+  } else {
+    const value = Number(raw);
+    const amount = Number.isFinite(value) && value > 0 ? Math.round(value * 100) / 100 : null;
+    if (!amount) return { error: "La deuda debe ser mayor a 0." };
+    await prisma.cardStatement.upsert({
+      where,
+      create: { scheduledPaymentId: due.payment.id, dueDate: due.dueDate, amount },
+      update: { amount },
+    });
+  }
+
+  // "layout" incluye la página de detalle de cada vencimiento.
+  revalidatePath("/dashboard/calendario", "layout");
+  revalidatePath("/dashboard/tarjetas", "layout");
+  return null;
+}
 
 // Los consumos de una tarjeta se ven en Tarjetas, Calendario (estimado),
 // Transacciones y el selector de tarjeta del layout: se revalida todo el dashboard.
@@ -48,7 +96,7 @@ export async function linkCardTransactions(
   return null;
 }
 
-// Borra la tarjeta con su cronograma, deuda y ruleteos. Los pagos ya hechos se
+// Borra la tarjeta con su cronograma, deuda. Los pagos ya hechos se
 // conservan en su cuenta. No se borra si tiene consumos: quedarían sin cuenta
 // ni tarjeta (la página no ofrece borrarla en ese caso).
 export async function deleteCard(cardId: string) {

@@ -10,7 +10,7 @@ import { LoanInfoDialog } from "@/components/finance/loan-info-dialog";
 import { LoanInstallmentDialog } from "@/components/finance/loan-installment-dialog";
 import { LoanProgress } from "@/components/finance/loan-progress";
 import { OccurrenceDialog } from "@/components/finance/occurrence-dialog";
-import { OccurrenceStatusMark, occurrenceAmountClass, ROULETTE_MARK } from "@/components/finance/occurrence-row";
+import { OccurrenceStatusMark, occurrenceAmountClass, PREPAYMENT_MARK } from "@/components/finance/occurrence-row";
 import { PrepaymentDialog } from "@/components/finance/prepayment-dialog";
 import { RegisterPrepaymentDialog, UndoPrepaymentButton } from "@/components/finance/register-prepayment-dialog";
 import { getAccounts } from "@/features/accounts/queries";
@@ -325,7 +325,7 @@ function PrepaymentRow({
     <li className="grid grid-cols-[2rem_1fr_auto] items-center gap-x-3 gap-y-1 border-t bg-primary/5 px-4 py-2 text-sm md:grid-cols-[2rem_6.5rem_1fr_1fr_1fr_1fr_1fr_8.5rem]">
       <BanknoteArrowDown className="size-4 text-primary" />
       <div className="flex items-center gap-2">
-        <OccurrenceStatusMark status={ROULETTE_MARK[prepayment.status]} className="size-4" />
+        <OccurrenceStatusMark status={PREPAYMENT_MARK[prepayment.status]} className="size-4" />
         <span className="tabular-nums">{formatDate(prepayment.date)}</span>
       </div>
       <span className="hidden truncate text-primary md:col-span-3 md:block">

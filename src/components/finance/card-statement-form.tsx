@@ -4,7 +4,7 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { saveCardStatement } from "@/features/roulette/actions";
+import { saveCardStatement } from "@/features/cards/actions";
 import { formatCurrency } from "@/lib/format";
 
 // Deuda del estado de cuenta de un vencimiento. Vacía = se usa el estimado.

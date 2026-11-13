@@ -148,26 +148,12 @@ export function OccurrenceDialog({
         )}
 
         {isCard && (
-          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-            <span className="text-muted-foreground">
-              {entry.roulette ? (
-                <>
-                  Ruleteado{" "}
-                  <span className="font-medium text-foreground tabular-nums">
-                    {formatCurrency(entry.roulette.received)}
-                  </span>{" "}
-                  · comisiones{" "}
-                  <span className="font-medium text-expense tabular-nums">{formatCurrency(entry.roulette.fees)}</span>
-                </>
-              ) : (
-                "Sin ruleteo planificado"
-              )}
-            </span>
+          <div className="flex flex-wrap items-center justify-end gap-2 text-sm">
             <Link
               href={`/dashboard/tarjetas/${entry.scheduledPaymentId}/${entry.dueDateValue}`}
               className="flex items-center gap-1 font-medium text-primary hover:underline"
             >
-              Deuda y ruleteo
+              Deuda del estado de cuenta
               <ArrowRight className="size-3.5" />
             </Link>
           </div>

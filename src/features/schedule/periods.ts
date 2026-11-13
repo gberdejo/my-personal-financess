@@ -74,7 +74,7 @@ export async function isDueDateOf(payment: PaymentRule & { id: string }, date: D
   return isPaymentDueDate(payment, sources(payment.id), date);
 }
 
-// Todo lo que cuelga de un vencimiento (cuota resuelta, deuda, ruleteos) se
+// Todo lo que cuelga de un vencimiento (cuota resuelta, deuda) se
 // identifica por su fecha de pago: si la fecha cambia, se mueve con ella.
 export async function moveDueDate(
   tx: Prisma.TransactionClient,
@@ -87,25 +87,23 @@ export async function moveDueDate(
   const data = { dueDate: to };
   await tx.scheduledOccurrence.updateMany({ where, data });
   await tx.cardStatement.updateMany({ where, data });
-  await tx.rouletteOperation.updateMany({ where, data });
 }
 
 // Antes de cambiar la regla de una tarjeta, pasa al cronograma los meses de la
-// regla que ya tienen datos (pagados, con deuda o ruleteo), para que no cambien
+// regla que ya tienen datos (pagados o con deuda), para que no cambien
 // de fecha y queden huérfanos.
 export async function freezeRuleMonthsWithData(tx: Prisma.TransactionClient, scheduledPaymentId: string, rule: CardRule) {
   const where = { scheduledPaymentId };
   const select = { dueDate: true } as const;
-  const [occurrences, statements, operations, periods] = await Promise.all([
+  const [occurrences, statements, periods] = await Promise.all([
     tx.scheduledOccurrence.findMany({ where, select }),
     tx.cardStatement.findMany({ where, select }),
-    tx.rouletteOperation.findMany({ where, select, distinct: ["dueDate"] }),
     tx.cardBillingPeriod.findMany({ where, select: { closingDate: true, dueDate: true } }),
   ]);
 
   const scheduled = new Set(periods.map((p) => p.dueDate.getTime()));
   const dueDates = new Map<number, Date>();
-  for (const { dueDate } of [...occurrences, ...statements, ...operations]) {
+  for (const { dueDate } of [...occurrences, ...statements]) {
     if (!scheduled.has(dueDate.getTime())) dueDates.set(dueDate.getTime(), dueDate);
   }
 

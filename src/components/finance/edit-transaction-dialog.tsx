@@ -54,7 +54,7 @@ export function EditTransactionDialog({
   kind: MovementKind;
   currentDate: string;
   currentAmount: number;
-  // Gasto de un prepago o comisión de ruleteo: el monto se ve pero no se edita.
+  // Gasto de un prepago: el monto se ve pero no se edita.
   amountLock: { kind: AmountLock; href: string } | null;
   currentCategoryId: string;
   currentPaymentMethod: PaymentMethod | null;

@@ -36,7 +36,6 @@ export async function getTransactionsForRange(
       card: { select: { name: true } },
       budgetItem: { select: { budget: { select: { id: true, title: true } } } },
       loanPrepayment: { select: { scheduledPaymentId: true } },
-      rouletteOperation: { select: { scheduledPaymentId: true, dueDate: true } },
       // Si es el pago de una tarjeta, el periodo que pagó.
       scheduledOccurrence: { select: { scheduledPaymentId: true, dueDate: true } },
       importedMovements: {

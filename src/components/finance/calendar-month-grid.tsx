@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BanknoteArrowDown, Repeat } from "lucide-react";
+import { BanknoteArrowDown } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { OccurrenceDialog } from "@/components/finance/occurrence-dialog";
 import {
@@ -7,10 +7,9 @@ import {
   OccurrenceRow,
   OccurrenceStatusMark,
   occurrenceAmountClass,
-  ROULETTE_MARK,
+  PREPAYMENT_MARK,
 } from "@/components/finance/occurrence-row";
 import type { LoanPrepaymentRow } from "@/features/loans/queries";
-import type { RouletteOperationRow } from "@/features/roulette/queries";
 import type { CalendarEntry } from "@/features/schedule/queries";
 import { monthRange, shiftDay, todayInLima, toUTCDateInputValue } from "@/lib/date";
 import { formatCurrency, formatTransactionDate } from "@/lib/format";
@@ -21,7 +20,6 @@ type AccountOption = { id: string; name: string };
 type DayItems = {
   date: Date;
   entries: CalendarEntry[];
-  operations: RouletteOperationRow[];
   prepayments: LoanPrepaymentRow[];
 };
 
@@ -38,42 +36,35 @@ function monthCells(year: number, month: number) {
   return cells;
 }
 
-// Cuotas, ruleteos y prepagos agrupados por día ("YYYY-MM-DD"), en orden de fecha.
-function groupByDay(entries: CalendarEntry[], operations: RouletteOperationRow[], prepayments: LoanPrepaymentRow[]) {
+// Cuotas y prepagos agrupados por día ("YYYY-MM-DD"), en orden de fecha.
+function groupByDay(entries: CalendarEntry[], prepayments: LoanPrepaymentRow[]) {
   const groups = new Map<string, DayItems>();
   function group(date: Date) {
     const key = toUTCDateInputValue(date);
-    const items = groups.get(key) ?? { date, entries: [], operations: [], prepayments: [] };
+    const items = groups.get(key) ?? { date, entries: [], prepayments: [] };
     groups.set(key, items);
     return items;
   }
   for (const entry of entries) group(entry.dueDate).entries.push(entry);
-  for (const operation of operations) group(operation.date).operations.push(operation);
   for (const prepayment of prepayments) group(prepayment.date).prepayments.push(prepayment);
   return new Map([...groups.entries()].sort(([a], [b]) => a.localeCompare(b)));
-}
-
-function paymentDetailHref(operation: RouletteOperationRow) {
-  return `/dashboard/tarjetas/${operation.scheduledPaymentId}/${operation.dueDateValue}`;
 }
 
 export function CalendarMonthGrid({
   year,
   month,
   entries,
-  operations,
   prepayments,
   accounts,
 }: {
   year: number;
   month: number;
   entries: CalendarEntry[];
-  operations: RouletteOperationRow[];
   prepayments: LoanPrepaymentRow[];
   accounts: AccountOption[];
 }) {
   const today = toUTCDateInputValue(todayInLima());
-  const byDay = groupByDay(entries, operations, prepayments);
+  const byDay = groupByDay(entries, prepayments);
 
   return (
     <>
@@ -141,39 +132,19 @@ export function CalendarMonthGrid({
                     </OccurrenceDialog>
                   ))}
                 {inMonth &&
-                  items?.operations.map((operation) => (
-                    <Link
-                      key={operation.id}
-                      href={paymentDetailHref(operation)}
-                      className="flex w-full items-start gap-1.5 rounded-md px-1 py-1 transition-colors hover:bg-muted"
-                    >
-                      <OccurrenceStatusMark status={ROULETTE_MARK[operation.status]} className="mt-0.5 size-3.5" />
-                      <span className="flex min-w-0 flex-col">
-                        <span className="flex items-center gap-1 truncate text-xs font-medium">
-                          <Repeat className="size-3 shrink-0 text-muted-foreground" />
-                          <span className="truncate">{operation.provider}</span>
-                        </span>
-                        <span className="truncate text-[11px] text-muted-foreground tabular-nums">
-                          {formatCurrency(operation.charge)} ·{" "}
-                          <span className="text-expense">{formatCurrency(operation.fee)}</span>
-                        </span>
-                      </span>
-                    </Link>
-                  ))}
-                {inMonth &&
                   items?.prepayments.map((prepayment) => (
                     <Link
                       key={prepayment.id}
                       href={`/dashboard/prestamos/${prepayment.scheduledPaymentId}`}
                       className="flex w-full items-start gap-1.5 rounded-md px-1 py-1 transition-colors hover:bg-muted"
                     >
-                      <OccurrenceStatusMark status={ROULETTE_MARK[prepayment.status]} className="mt-0.5 size-3.5" />
+                      <OccurrenceStatusMark status={PREPAYMENT_MARK[prepayment.status]} className="mt-0.5 size-3.5" />
                       <span className="flex min-w-0 flex-col">
                         <span className="flex items-center gap-1 truncate text-xs font-medium">
                           <BanknoteArrowDown className="size-3 shrink-0 text-primary" />
                           <span className="truncate">Prepago</span>
                         </span>
-                        <span className={cn("text-[11px] text-muted-foreground", occurrenceAmountClass(ROULETTE_MARK[prepayment.status]))}>
+                        <span className={cn("text-[11px] text-muted-foreground", occurrenceAmountClass(PREPAYMENT_MARK[prepayment.status]))}>
                           {formatCurrency(prepayment.amount)}
                         </span>
                       </span>
@@ -185,7 +156,7 @@ export function CalendarMonthGrid({
         </div>
       </Card>
 
-      {/* En móvil la grilla no entra: agenda de los días con pagos y ruleteos. */}
+      {/* En móvil la grilla no entra: agenda de los días con pagos. */}
       <Card className="py-0 md:hidden">
         <CardContent className="px-0">
           {byDay.size === 0 ? (
@@ -211,35 +182,13 @@ export function CalendarMonthGrid({
                       detail={entry.categoryName ?? "Tarjeta de crédito"}
                     />
                   ))}
-                  {items.operations.map((operation) => (
-                    <li key={operation.id}>
-                      <Link
-                        href={paymentDetailHref(operation)}
-                        className="flex w-full items-center gap-3 px-4 py-2.5 transition-colors hover:bg-muted/40"
-                      >
-                        <OccurrenceStatusMark status={ROULETTE_MARK[operation.status]} />
-                        <div className="min-w-0 flex-1">
-                          <p className="flex items-center gap-1.5 truncate text-sm font-medium">
-                            <Repeat className="size-3.5 shrink-0 text-muted-foreground" />
-                            <span className="truncate">Ruleteo · {operation.provider}</span>
-                          </p>
-                          <p className="truncate text-xs text-muted-foreground">
-                            {operation.cardName} · cargo {formatCurrency(operation.charge)}
-                          </p>
-                        </div>
-                        <span className="shrink-0 text-sm font-semibold text-expense tabular-nums">
-                          {formatCurrency(operation.fee)}
-                        </span>
-                      </Link>
-                    </li>
-                  ))}
                   {items.prepayments.map((prepayment) => (
                     <li key={prepayment.id}>
                       <Link
                         href={`/dashboard/prestamos/${prepayment.scheduledPaymentId}`}
                         className="flex w-full items-center gap-3 px-4 py-2.5 transition-colors hover:bg-muted/40"
                       >
-                        <OccurrenceStatusMark status={ROULETTE_MARK[prepayment.status]} />
+                        <OccurrenceStatusMark status={PREPAYMENT_MARK[prepayment.status]} />
                         <div className="min-w-0 flex-1">
                           <p className="flex items-center gap-1.5 truncate text-sm font-medium">
                             <BanknoteArrowDown className="size-3.5 shrink-0 text-primary" />
@@ -250,7 +199,7 @@ export function CalendarMonthGrid({
                         <span
                           className={cn(
                             "shrink-0 text-sm font-semibold",
-                            occurrenceAmountClass(ROULETTE_MARK[prepayment.status])
+                            occurrenceAmountClass(PREPAYMENT_MARK[prepayment.status])
                           )}
                         >
                           {formatCurrency(prepayment.amount)}

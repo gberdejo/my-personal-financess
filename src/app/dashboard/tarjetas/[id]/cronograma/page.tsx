@@ -73,7 +73,6 @@ export default async function CronogramaTarjetaPage({
                 status: row.entry.status,
                 amount: row.entry.amount,
                 hasStatement: row.entry.statementAmount !== null,
-                rouletteCount: row.entry.roulette?.count ?? 0,
                 href: `/dashboard/tarjetas/${schedule.payment.id}/${row.entry.dueDateValue}`,
               }
             : null,

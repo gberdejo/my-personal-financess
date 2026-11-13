@@ -36,8 +36,8 @@ export function CycleChangeMark({ className }: { className?: string }) {
   );
 }
 
-// Las operaciones de ruleteo usan las mismas marcas que las cuotas.
-export const ROULETTE_MARK = { PLANNED: "PENDING", DUE: "OVERDUE", DONE: "PAID" } as const;
+// Los prepagos usan las mismas marcas que las cuotas.
+export const PREPAYMENT_MARK = { PLANNED: "PENDING", DUE: "OVERDUE", DONE: "PAID" } as const;
 
 export function occurrenceAmountClass(status: OccurrenceStatusView) {
   return cn(

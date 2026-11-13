@@ -196,7 +196,6 @@ export async function getImport(importId: string): Promise<ImportDetail | null> 
               category: { select: { name: true } },
               account: { select: { name: true } },
               loanPrepayment: { select: { scheduledPaymentId: true } },
-              rouletteOperation: { select: { scheduledPaymentId: true, dueDate: true } },
             },
           },
         },

@@ -151,7 +151,6 @@ export async function updateTransaction(
       accountId: true,
       cardId: true,
       loanPrepayment: { select: { id: true } },
-      rouletteOperation: { select: { id: true } },
     },
   });
   if (!transaction) return { error: "No se pudo actualizar el movimiento." };

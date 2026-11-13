@@ -137,7 +137,6 @@ model Transaction {
   card                ScheduledPayment?    @relation("TransactionCard", fields: [cardId], references: [id], onDelete: SetNull)
   budgetItem          BudgetItem?
   scheduledOccurrence ScheduledOccurrence?
-  rouletteOperation   RouletteOperation?
   loanPrepayment      LoanPrepayment?
   // Movimientos importados (Yape, estados de cuenta) que la crearon o se vincularon a ella.
   importedMovements   ImportedMovement[]
@@ -224,7 +223,6 @@ model ScheduledPayment {
   category           Category?             @relation(fields: [categoryId], references: [id])
   occurrences        ScheduledOccurrence[]
   statements         CardStatement[]
-  rouletteOperations RouletteOperation[]
   billingPeriods     CardBillingPeriod[]
   loan               Loan?
   installments       LoanInstallment[]
@@ -271,34 +269,6 @@ model CardStatement {
   scheduledPayment ScheduledPayment @relation(fields: [scheduledPaymentId], references: [id], onDelete: Cascade)
 
   @@unique([scheduledPaymentId, dueDate])
-}
-
-// Un "micro ruleteo" para pagar la tarjeta: se cargan `charge` a la tarjeta en
-// un proveedor que deposita charge − fee. Al registrarlo, la comisión se
-// guarda como gasto; si se borra ese gasto, vuelve a planificado.
-model RouletteOperation {
-  id                 String   @id @default(cuid())
-  userId             String
-  // Vencimiento de tarjeta que ayuda a cubrir (misma clave que las cuotas).
-  scheduledPaymentId String
-  dueDate            DateTime
-  // Día en que se hace, como medianoche UTC.
-  date               DateTime
-  provider           String
-  // 0.0200 = 2 %.
-  feeRate            Decimal  @db.Decimal(6, 4)
-  charge             Decimal  @db.Decimal(12, 2)
-  // charge × feeRate, redondeado a céntimos.
-  fee                Decimal  @db.Decimal(12, 2)
-  transactionId      String?  @unique
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-
-  scheduledPayment ScheduledPayment @relation(fields: [scheduledPaymentId], references: [id], onDelete: Cascade)
-  transaction      Transaction?     @relation(fields: [transactionId], references: [id], onDelete: SetNull)
-
-  @@index([userId, date])
-  @@index([scheduledPaymentId, dueDate])
 }
 
 // Un mes del cronograma de facturación que publica el banco: cierre y pago
