@@ -438,3 +438,11 @@ model ImportedMovement {
   @@index([userId, fingerprint])
   @@index([transactionId])
 }
+
+// Link secreto para suscribir el calendario de pagos en otra app (iPhone, Google).
+model CalendarFeed {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  token     String   @unique
+  createdAt DateTime @default(now())
+}

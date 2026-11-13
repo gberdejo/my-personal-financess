@@ -246,6 +246,12 @@ export async function getLoan(scheduledPaymentId: string): Promise<LoanDetail | 
 // Prepagos en [start, end) de los préstamos activos, para el calendario.
 export async function getPrepaymentsForRange(start: Date, end: Date): Promise<LoanPrepaymentRow[]> {
   const userId = await requireUserId();
+  return prepaymentsForUser(userId, start, end);
+}
+
+// Solo para el feed del calendario, que ya resolvió el `userId` por token.
+// No usar desde páginas: no pide sesión.
+export async function prepaymentsForUser(userId: string, start: Date, end: Date): Promise<LoanPrepaymentRow[]> {
   const today = todayInLima();
 
   const prepayments = await prisma.loanPrepayment.findMany({

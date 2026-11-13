@@ -83,6 +83,13 @@ async function loadActivePayments(userId: string) {
 
 type LoadedPayment = Awaited<ReturnType<typeof loadActivePayments>>[number];
 
+// Solo para el feed del calendario, que ya resolvió el `userId` por token.
+// No usar desde páginas: no pide sesión.
+export async function getEntriesForUser(userId: string, start: Date, end: Date) {
+  const payments = await loadActivePayments(userId);
+  return buildEntries(userId, payments, start, end);
+}
+
 function entryKey(scheduledPaymentId: string, dueDate: Date) {
   return `${scheduledPaymentId}:${dueDate.getTime()}`;
 }

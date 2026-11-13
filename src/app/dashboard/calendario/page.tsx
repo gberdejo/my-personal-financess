@@ -1,4 +1,6 @@
+import { headers } from "next/headers";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CalendarFeedDialog } from "@/components/finance/calendar-feed-dialog";
 import { CalendarMonthGrid } from "@/components/finance/calendar-month-grid";
 import { MonthNav } from "@/components/finance/month-nav";
 import { OccurrenceRow } from "@/components/finance/occurrence-row";
@@ -6,6 +8,7 @@ import { ScheduleSuggestions } from "@/components/finance/schedule-suggestions";
 import { ScheduledPaymentFormDialog } from "@/components/finance/scheduled-payment-form-dialog";
 import { ScheduledPaymentsList } from "@/components/finance/scheduled-payments-list";
 import { getAccounts } from "@/features/accounts/queries";
+import { getCalendarFeed } from "@/features/calendar-feed/queries";
 import { getCategories } from "@/features/categories/queries";
 import { getPrepaymentsForRange } from "@/features/loans/queries";
 import {
@@ -41,7 +44,7 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
   const { year, month } = parseMonthParam(monthParam);
   const range = monthRange(year, month);
 
-  const [entries, prepayments, { overdue, upcoming }, payments, suggestions, accounts, categories] =
+  const [entries, prepayments, { overdue, upcoming }, payments, suggestions, accounts, categories, feed] =
     await Promise.all([
       getCalendarMonth(year, month),
       getPrepaymentsForRange(range.start, range.end),
@@ -50,7 +53,15 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
       getScheduleSuggestions(),
       getAccounts(),
       getCategories("EXPENSE"),
+      getCalendarFeed(),
     ]);
+
+  const requestHeaders = await headers();
+  const host = requestHeaders.get("host");
+  const protocol = requestHeaders.get("x-forwarded-proto") ?? "https";
+  const feedPath = feed && host ? `//${host}/api/calendario/${feed.token}` : null;
+  const httpsUrl = feedPath ? `${protocol}:${feedPath}` : null;
+  const webcalUrl = feedPath ? `webcal:${feedPath}` : null;
 
   const pendingInMonth = entries.filter((e) => e.status === "PENDING" || e.status === "OVERDUE");
   // Los prepagos planificados del mes también son plata que va a salir.
@@ -64,6 +75,7 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
         <h1 className="font-heading text-2xl font-medium italic md:text-3xl">Calendario</h1>
         <div className="flex items-center justify-between gap-2">
           <MonthNav year={year} month={month} />
+          <CalendarFeedDialog httpsUrl={httpsUrl} webcalUrl={webcalUrl} />
           <ScheduledPaymentFormDialog accounts={accounts} categories={categories} />
         </div>
       </div>
