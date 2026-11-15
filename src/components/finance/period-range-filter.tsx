@@ -17,9 +17,11 @@ export type PeriodSelection = {
 export function PeriodRangeFilter({
   value,
   onApply,
+  applyLabel = "Aplicar",
 }: {
   value: PeriodSelection;
   onApply: (next: PeriodSelection) => void;
+  applyLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<PeriodSelection>(value);
@@ -94,7 +96,7 @@ export function PeriodRangeFilter({
                 Cancelar
               </Button>
               <Button size="sm" disabled={!canApply} onClick={handleApply}>
-                Aplicar
+                {applyLabel}
               </Button>
             </div>
           </div>

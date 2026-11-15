@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCreditCards } from "@/components/finance/credit-cards-context";
 import { NO_PAYMENT_METHOD_LABEL, PAYMENT_METHOD_LABELS, PAYMENT_METHODS } from "@/lib/labels";
@@ -10,28 +9,22 @@ const ALL = "ALL";
 // Las tarjetas van como "CARD:<id>" debajo de Tarjeta de crédito.
 const CARD_PREFIX = "CARD:";
 
-// Filtra la lista de transacciones por método de pago vía `?method=` y, con
-// tarjeta de crédito, por tarjeta vía `?tarjeta=`, conservando el periodo.
+// Selector controlado de método de pago y, con tarjeta de crédito, de la tarjeta.
 export function PaymentMethodFilter({
   value,
   card,
+  onChange,
 }: {
   value: PaymentMethodFilterValue | null;
   card: CardFilter | null;
+  onChange: (next: { method: PaymentMethodFilterValue | null; card: CardFilter | null }) => void;
 }) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
   const cards = useCreditCards();
 
   function handleChange(next: string) {
-    const params = new URLSearchParams(searchParams);
-    params.delete("tarjeta");
-    if (next === ALL) params.delete("method");
-    else if (next.startsWith(CARD_PREFIX)) {
-      params.set("method", "CREDIT_CARD");
-      params.set("tarjeta", next.slice(CARD_PREFIX.length));
-    } else params.set("method", next);
-    router.push(`/dashboard/transacciones?${params.toString()}`);
+    if (next === ALL) onChange({ method: null, card: null });
+    else if (next.startsWith(CARD_PREFIX)) onChange({ method: "CREDIT_CARD", card: next.slice(CARD_PREFIX.length) });
+    else onChange({ method: next as PaymentMethodFilterValue, card: null });
   }
 
   const selected = card ? `${CARD_PREFIX}${card}` : (value ?? ALL);

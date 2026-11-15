@@ -21,6 +21,16 @@ type Option = { id: string; name: string };
 // `saveReason`: el motivo se escribió nuevo; al aplicar se guarda como sugerencia de la categoría.
 type Draft = { categoryId: string; reason: string; saveReason: boolean; accountId: string };
 
+// Cambiar de categoría deja el motivo vacío: el anterior era de otra categoría.
+// Si la categoría se encontró por un motivo, se usa ese.
+function withCategory(draft: Draft, categoryId: string, reason?: string): Draft {
+  if (reason) return { ...draft, categoryId, reason, saveReason: false };
+  if (draft.categoryId && draft.categoryId !== categoryId) {
+    return { ...draft, categoryId, reason: "", saveReason: false };
+  }
+  return { ...draft, categoryId };
+}
+
 // Movimientos pendientes de una importación: se eligen, se les pone categoría,
 // motivo y cuenta, y se aplican como transacciones (o se descartan).
 export function ImportedMovementsTable({
@@ -58,12 +68,12 @@ export function ImportedMovementsTable({
   } = useCreateCategory((created) => {
     setCategories((prev) => ({ ...prev, [created.kind]: [...prev[created.kind], created] }));
     if (creatingFor === "bulk") assignToSelected(created.id);
-    else if (creatingFor) update(creatingFor, { categoryId: created.id });
+    else if (creatingFor) setCategory(creatingFor, created.id);
     // Las demás filas cuyo archivo traía esa misma categoría (que no existía) también la usan.
     const key = normalizeReason(created.name);
     for (const m of movements) {
       if (m.kind === created.kind && m.missingCategory && normalizeReason(m.missingCategory) === key) {
-        update(m.id, { categoryId: created.id });
+        setCategory(m.id, created.id);
       }
     }
   });
@@ -97,11 +107,15 @@ export function ImportedMovementsTable({
     setEdited((prev) => ({ ...prev, [id]: { ...(prev[id] ?? suggested[id]), ...patch } }));
   }
 
+  function setCategory(id: string, categoryId: string, reason?: string) {
+    setEdited((prev) => ({ ...prev, [id]: withCategory(prev[id] ?? suggested[id], categoryId, reason) }));
+  }
+
   function assignToSelected(categoryId: string, reason?: string) {
     setEdited((prev) => {
       const next = { ...prev };
       for (const m of chosen) {
-        next[m.id] = { ...(next[m.id] ?? suggested[m.id]), categoryId, ...(reason ? { reason, saveReason: false } : {}) };
+        next[m.id] = withCategory(next[m.id] ?? suggested[m.id], categoryId, reason);
       }
       return next;
     });
@@ -204,6 +218,7 @@ export function ImportedMovementsTable({
             creatingCategory={categoryPending && creatingFor === m.id}
             onToggle={(value) => toggle(m.id, value)}
             onChange={(patch) => update(m.id, patch)}
+            onCategoryChange={(categoryId, reason) => setCategory(m.id, categoryId, reason)}
             onCreateCategory={(name) => {
               setCreatingFor(m.id);
               createCategory(name, m.kind);
@@ -226,6 +241,7 @@ function MovementRow({
   creatingCategory,
   onToggle,
   onChange,
+  onCategoryChange,
   onCreateCategory,
 }: {
   movement: ImportedMovementRow;
@@ -238,6 +254,7 @@ function MovementRow({
   creatingCategory: boolean;
   onToggle: (value: boolean) => void;
   onChange: (patch: Partial<Draft>) => void;
+  onCategoryChange: (categoryId: string, reason?: string) => void;
   onCreateCategory: (name: string) => void;
 }) {
   const [linking, startLink] = useTransition();
@@ -319,7 +336,7 @@ function MovementRow({
           frequentIds={frequentCategoryIds}
           reasonSuggestions={reasonSuggestions}
           creating={creatingCategory}
-          onSelect={(categoryId, reason) => onChange(reason ? { categoryId, reason, saveReason: false } : { categoryId })}
+          onSelect={(categoryId, reason) => onCategoryChange(categoryId, reason)}
           onCreate={onCreateCategory}
         />
       </div>

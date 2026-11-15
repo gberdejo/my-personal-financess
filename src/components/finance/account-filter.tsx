@@ -1,21 +1,21 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const ALL = "ALL";
 
-// Filtra por cuenta vía `?account=`, conservando los demás filtros (mes, método).
-export function AccountFilter({ accounts, value }: { accounts: { id: string; name: string }[]; value: string | null }) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-
+// Selector de cuenta controlado: `null` es "Todas las cuentas".
+export function AccountFilter({
+  accounts,
+  value,
+  onChange,
+}: {
+  accounts: { id: string; name: string }[];
+  value: string | null;
+  onChange: (next: string | null) => void;
+}) {
   function handleChange(next: string) {
-    const params = new URLSearchParams(searchParams);
-    if (next === ALL) params.delete("account");
-    else params.set("account", next);
-    router.push(`${pathname}?${params.toString()}`);
+    onChange(next === ALL ? null : next);
   }
 
   if (accounts.length < 2) return null;

@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
+import { Search } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CategoryPieChart } from "@/components/finance/category-pie-chart";
 import { PaymentMethodBreakdown } from "@/components/finance/payment-method-breakdown";
@@ -11,7 +13,7 @@ import { PeriodRangeFilter, type PeriodSelection } from "@/components/finance/pe
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getDashboardSummaryForRangeAction } from "@/features/dashboard/actions";
 import { getPresetRange } from "@/lib/period";
-import { monthRange, toDateInputValue, toUTCDateInputValue } from "@/lib/date";
+import { toDateInputValue } from "@/lib/date";
 import { formatCurrency, formatTransactionDate } from "@/lib/format";
 import type { PaymentMethod, TransactionKind } from "@/generated/prisma/client";
 
@@ -41,32 +43,37 @@ type Summary = {
 
 export function DashboardOverview({
   initialSummary,
-  initialYear,
-  initialMonth,
+  initialStart,
+  initialAccountId,
   accounts,
 }: {
   initialSummary: Summary;
-  initialYear: number;
-  initialMonth: number;
+  initialStart: string;
+  initialAccountId: string | null;
   accounts: AccountOption[];
 }) {
-  const [selection, setSelection] = useState<PeriodSelection>({
-    preset: "thisMonth",
-    customStart: toUTCDateInputValue(monthRange(initialYear, initialMonth).start),
+  const [draftSelection, setDraftSelection] = useState<PeriodSelection>(() => ({
+    preset: "last7Days",
+    customStart: initialStart,
     customEnd: toDateInputValue(new Date()),
-  });
-  const [accountId, setAccountId] = useState(ALL_ACCOUNTS);
+  }));
+  const [draftAccountId, setDraftAccountId] = useState(initialAccountId ?? ALL_ACCOUNTS);
+  // Filtros con los que se trajo el resumen que se está mostrando.
+  const [applied, setApplied] = useState(() => ({ selection: draftSelection, accountId: draftAccountId }));
   const [summary, setSummary] = useState<Summary>(initialSummary);
   const [isPending, startTransition] = useTransition();
-  const isFirstRender = useRef(true);
 
-  useEffect(() => {
-    if (isFirstRender.current) {
-      isFirstRender.current = false;
-      return;
-    }
-    const range = getPresetRange(selection.preset, selection.customStart, selection.customEnd);
+  const hasChanges =
+    draftAccountId !== applied.accountId ||
+    draftSelection.preset !== applied.selection.preset ||
+    draftSelection.customStart !== applied.selection.customStart ||
+    draftSelection.customEnd !== applied.selection.customEnd;
+
+  function handleSearch() {
+    const range = getPresetRange(draftSelection.preset, draftSelection.customStart, draftSelection.customEnd);
     if (!range) return;
+    const selection = draftSelection;
+    const accountId = draftAccountId;
     startTransition(async () => {
       const result = await getDashboardSummaryForRangeAction(
         range.start.toISOString(),
@@ -74,30 +81,40 @@ export function DashboardOverview({
         accountId === ALL_ACCOUNTS ? null : accountId
       );
       setSummary(result);
+      setApplied({ selection, accountId });
     });
-  }, [selection, accountId]);
+  }
 
   return (
     <div className={`flex flex-col gap-4 transition-opacity ${isPending ? "opacity-60" : ""}`}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="font-heading text-2xl font-medium italic md:text-3xl">Resumen</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          {accounts.length > 1 && (
-            <Select value={accountId} onValueChange={setAccountId}>
-              <SelectTrigger aria-label="Cuenta" className="w-48">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL_ACCOUNTS}>Todas las cuentas</SelectItem>
-                {accounts.map((account) => (
-                  <SelectItem key={account.id} value={account.id}>
-                    {account.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        <div className="flex flex-col gap-1.5 sm:items-end">
+          <div className="flex flex-wrap items-center gap-2">
+            {accounts.length > 0 && (
+              <Select value={draftAccountId} onValueChange={setDraftAccountId}>
+                <SelectTrigger aria-label="Cuenta" className="w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_ACCOUNTS}>Todas las cuentas</SelectItem>
+                  {accounts.map((account) => (
+                    <SelectItem key={account.id} value={account.id}>
+                      {account.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <PeriodRangeFilter value={draftSelection} onApply={setDraftSelection} applyLabel="Listo" />
+            <Button onClick={handleSearch} disabled={isPending || !hasChanges}>
+              <Search className="size-4" data-icon="inline-start" />
+              {isPending ? "Buscando…" : "Buscar"}
+            </Button>
+          </div>
+          {hasChanges && !isPending && (
+            <p className="text-xs text-muted-foreground">Presiona Buscar para actualizar el resumen.</p>
           )}
-          <PeriodRangeFilter value={selection} onApply={setSelection} />
         </div>
       </div>
 

@@ -10,13 +10,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { PeriodSelection } from "@/components/finance/period-range-filter";
-import { TransactionsPeriodFilter } from "@/components/finance/transactions-period-filter";
+import { TransactionsFilters } from "@/components/finance/transactions-filters";
 import { ConfirmDeleteButton } from "@/components/finance/confirm-delete-button";
 import { EditTransactionDialog } from "@/components/finance/edit-transaction-dialog";
 import { ReceiptsDialog } from "@/components/finance/receipts-dialog";
 import { ChargeStatusChip } from "@/components/finance/charge-status-chip";
-import { AccountFilter } from "@/components/finance/account-filter";
-import { PaymentMethodFilter } from "@/components/finance/payment-method-filter";
 import { TransactionFormDialog } from "@/components/finance/transaction-form-dialog";
 import { getAccounts } from "@/features/accounts/queries";
 import { getCategories, getFrequentCategoryIds, getReasonSuggestions } from "@/features/categories/queries";
@@ -95,6 +93,8 @@ export default async function TransaccionesPage({ searchParams }: { searchParams
   // Lo mismo con la tarjeta; solo cuenta junto con el método tarjeta de crédito.
   const filteredCard = cards.find((c) => c.id === params.tarjeta);
   const cardFilter = method === "CREDIT_CARD" && filteredCard ? { id: filteredCard.id, label: filteredCard.name } : null;
+  // Cambia cuando cambian los filtros aplicados (URL), para reiniciar los que se están eligiendo.
+  const filtersKey = [period.preset, period.customStart, period.customEnd, account?.id, method, cardFilter?.id].join("|");
 
   const [transactions, incomeCategories, expenseCategories, reasonSuggestions, frequentCategoryIds] =
     await Promise.all([
@@ -110,9 +110,14 @@ export default async function TransaccionesPage({ searchParams }: { searchParams
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="font-heading text-2xl font-medium italic md:text-3xl">Transacciones</h1>
         <div className="flex flex-wrap items-center gap-2">
-          <TransactionsPeriodFilter value={period} />
-          <AccountFilter accounts={accounts} value={account?.id ?? null} />
-          <PaymentMethodFilter value={method} card={cardFilter?.id ?? null} />
+          <TransactionsFilters
+            key={filtersKey}
+            accounts={accounts}
+            period={period}
+            account={account?.id ?? null}
+            method={method}
+            card={cardFilter?.id ?? null}
+          />
           <Button variant="outline" asChild>
             <Link href="/dashboard/importaciones">
               <FileUp />
