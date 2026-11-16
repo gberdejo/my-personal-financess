@@ -10,6 +10,7 @@ import {
   toUTCDateInputValue,
 } from "@/lib/date";
 import { normalizeReason } from "@/lib/reason";
+import { roundMoney } from "@/lib/format";
 import {
   billingMonth,
   monthStart,
@@ -25,7 +26,24 @@ import type {
   ScheduleFrequency,
 } from "@/generated/prisma/client";
 
-export type OccurrenceStatusView = "PENDING" | "OVERDUE" | "PAID" | "SKIPPED";
+// PARTIAL: tarjeta con una sola de sus dos partes (soles o dólares) resuelta.
+export type OccurrenceStatusView = "PENDING" | "OVERDUE" | "PARTIAL" | "PAID" | "SKIPPED";
+
+// Una parte (soles o dólares) del vencimiento de una tarjeta.
+export type PartView = {
+  // Pagada, marcada o sin deuda.
+  settled: boolean;
+  // Resuelta: lo pagado en su moneda. Si no, el pendiente.
+  amount: number;
+  // Lo que falta pagar de esta parte (0 si está resuelta).
+  pending: number;
+  transactionId: string | null;
+  // Resuelta sin crear pago (con monto): solo se marcó.
+  markOnly: boolean;
+  // Si creó pago: fecha y cuenta de salida.
+  paidOn: Date | null;
+  accountName: string | null;
+};
 
 export type LoanInstallmentDetail = {
   number: number;
@@ -47,18 +65,32 @@ export type CalendarEntry = {
   // "YYYY-MM-DD" del vencimiento, para las acciones.
   dueDateValue: string;
   status: OccurrenceStatusView;
-  // Pagado: lo que se pagó. Pendiente: la deuda ingresada (tarjeta) o el estimado.
+  // Pagado: lo que se pagó (en tarjeta, las dos partes en soles). Pendiente: la
+  // deuda ingresada (tarjeta) o el estimado, en soles.
   amount: number;
-  // En tarjeta, sus consumos del ciclo; si no, el monto de la regla.
+  // Solo la parte en soles de `amount` (en tarjeta con dólares, sin lo que salió por ellos).
+  amountPen: number;
+  // En tarjeta, sus consumos en soles del ciclo; si no, el monto de la regla.
   estimated: number;
   // Solo tarjeta: deuda del estado de cuenta ingresada para este vencimiento.
   statementAmount: number | null;
-  // Solo tarjeta pagada: los gastos con tarjeta del ciclo cambiaron desde que
-  // se marcó (`before` al marcarla, `after` ahora). null si no cambiaron.
-  cycleChange: { before: number; after: number } | null;
+  // Solo tarjeta: consumos en dólares del ciclo y deuda en dólares del estado de cuenta.
+  estimatedUsd: number;
+  statementAmountUsd: number | null;
+  // Solo tarjeta: cada parte por separado. null en servicios y préstamos.
+  parts: { pen: PartView; usd: PartView } | null;
+  // Solo tarjeta: dólares del vencimiento. Pagado: lo que se pagó, con el tipo de
+  // cambio (`exchangeRate`). Pendiente: la deuda en US$ ingresada o el estimado.
+  amountUsd: number;
+  exchangeRate: number | null;
+  // Solo tarjeta pagada: los gastos con tarjeta del ciclo (en soles o en dólares)
+  // cambiaron desde que se marcó (`before` al marcarla, `after` ahora). null si no cambiaron.
+  cycleChange: { before: number; after: number; beforeUsd: number; afterUsd: number } | null;
   // Solo préstamo: desglose de la cuota del cronograma.
   installment: LoanInstallmentDetail | null;
   transactionId: string | null;
+  // Solo tarjeta: el pago en dólares (el de soles es `transactionId`).
+  usdTransactionId: string | null;
   accountId: string | null;
   paymentMethod: PaymentMethod | null;
   // Solo tarjeta. `end` es exclusivo; `open` = el ciclo todavía no cerró.
@@ -116,7 +148,13 @@ async function buildEntries(userId: string, payments: LoadedPayment[], start: Da
   };
   const loanIds = [...new Set(dated.filter((d) => d.payment.type === "LOAN").map((d) => d.payment.id))];
   const [stored, statements, installments, installmentCounts] = await Promise.all([
-    prisma.scheduledOccurrence.findMany({ where: inRange }),
+    prisma.scheduledOccurrence.findMany({
+      where: inRange,
+      include: {
+        transaction: { select: { date: true, account: { select: { name: true } } } },
+        usdTransaction: { select: { date: true, account: { select: { name: true } } } },
+      },
+    }),
     prisma.cardStatement.findMany({ where: inRange }),
     loanIds.length
       ? prisma.loanInstallment.findMany({ where: { ...inRange, scheduledPaymentId: { in: loanIds } } })
@@ -146,7 +184,7 @@ async function buildEntries(userId: string, payments: LoadedPayment[], start: Da
     ])
   );
   const storedByKey = new Map(stored.map((o) => [entryKey(o.scheduledPaymentId, o.dueDate), o]));
-  const statementByKey = new Map(statements.map((s) => [entryKey(s.scheduledPaymentId, s.dueDate), Number(s.amount)]));
+  const statementByKey = new Map(statements.map((s) => [entryKey(s.scheduledPaymentId, s.dueDate), s]));
 
   const cycles = dated.flatMap((d) => (d.cycle ? [d.cycle] : []));
   const cardExpenses = cycles.length
@@ -163,7 +201,7 @@ async function buildEntries(userId: string, payments: LoadedPayment[], start: Da
             lt: new Date(Math.max(...cycles.map((c) => c.end.getTime()))),
           },
         },
-        select: { date: true, amount: true, cardId: true },
+        select: { date: true, amount: true, currency: true, foreignAmount: true, cardId: true },
       })
     : [];
 
@@ -171,17 +209,75 @@ async function buildEntries(userId: string, payments: LoadedPayment[], start: Da
     .map(({ payment, dueDate, cycle }): CalendarEntry => {
       const key = entryKey(payment.id, dueDate);
       const occurrence = storedByKey.get(key);
-      const statementAmount = statementByKey.get(key) ?? null;
+      const statement = statementByKey.get(key);
+      const statementAmount = statement ? Number(statement.amount) : null;
+      const statementAmountUsd = statement?.amountUsd != null ? Number(statement.amountUsd) : null;
       const loanInstallment = installmentByKey.get(key) ?? null;
       const inCycle = cycle ? cardExpenses.filter((t) => t.date >= cycle.start && t.date < cycle.end) : [];
+      const ofCard = inCycle.filter((t) => t.cardId === payment.id);
+      // Los consumos en dólares se suman aparte, en US$: en soles son solo un estimado.
       const estimated = cycle
-        ? inCycle.filter((t) => t.cardId === payment.id).reduce((sum, t) => sum + Number(t.amount), 0)
+        ? roundMoney(ofCard.filter((t) => t.currency === "PEN").reduce((sum, t) => sum + Number(t.amount), 0))
         : (loanInstallment?.total ?? Number(payment.amount ?? 0));
+      const estimatedUsd = cycle
+        ? roundMoney(ofCard.filter((t) => t.currency === "USD").reduce((sum, t) => sum + Number(t.foreignAmount ?? 0), 0))
+        : 0;
       const before = occurrence?.status === "PAID" && cycle ? occurrence.estimatedAtPayment : null;
+      const beforeUsd = Number(occurrence?.estimatedUsdAtPayment ?? 0);
       const cycleChange =
-        before != null && Math.abs(Number(before) - estimated) >= 0.005
-          ? { before: Number(before), after: estimated }
+        before != null && (Math.abs(Number(before) - estimated) >= 0.005 || Math.abs(beforeUsd - estimatedUsd) >= 0.005)
+          ? { before: Number(before), after: estimated, beforeUsd, afterUsd: estimatedUsd }
           : null;
+      const exchangeRate = occurrence?.exchangeRate != null ? Number(occurrence.exchangeRate) : null;
+
+      // Tarjeta: cada moneda tiene su estado, monto y pendiente.
+      let parts: CalendarEntry["parts"] = null;
+      let amount: number;
+      let amountPen: number;
+      let amountUsd: number;
+      if (payment.type === "CREDIT_CARD") {
+        const pendingPen = statementAmount ?? estimated;
+        const pendingUsd = statementAmountUsd ?? estimatedUsd;
+        const penSettled = occurrence?.penSettled ?? false;
+        const usdSettled = occurrence?.usdSettled ?? false;
+        const penPaid = Number(occurrence?.penAmount ?? 0);
+        const usdPaid = Number(occurrence?.amountUsd ?? 0);
+        parts = {
+          pen: {
+            settled: penSettled,
+            amount: penSettled ? penPaid : pendingPen,
+            pending: penSettled ? 0 : pendingPen,
+            transactionId: occurrence?.transactionId ?? null,
+            markOnly: penSettled && !occurrence?.transactionId && penPaid > 0,
+            paidOn: occurrence?.transaction?.date ?? null,
+            accountName: occurrence?.transaction?.account?.name ?? null,
+          },
+          usd: {
+            settled: usdSettled,
+            amount: usdSettled ? usdPaid : pendingUsd,
+            pending: usdSettled ? 0 : pendingUsd,
+            transactionId: occurrence?.usdTransactionId ?? null,
+            markOnly: usdSettled && !occurrence?.usdTransactionId && usdPaid > 0,
+            paidOn: occurrence?.usdTransaction?.date ?? null,
+            accountName: occurrence?.usdTransaction?.account?.name ?? null,
+          },
+        };
+        if (occurrence?.status === "PAID") {
+          amount = Number(occurrence.amount ?? 0);
+          amountPen = parts.pen.amount;
+          amountUsd = parts.usd.amount;
+        } else {
+          // Pendiente o en parte: lo que falta de cada moneda (la parte resuelta ya no suma).
+          amountPen = parts.pen.pending;
+          amount = amountPen;
+          amountUsd = parts.usd.pending;
+        }
+      } else {
+        const paid = occurrence?.amount != null;
+        amount = paid ? Number(occurrence.amount) : (statementAmount ?? estimated);
+        amountPen = amount;
+        amountUsd = 0;
+      }
 
       return {
         key: `${payment.id}:${toUTCDateInputValue(dueDate)}`,
@@ -192,9 +288,15 @@ async function buildEntries(userId: string, payments: LoadedPayment[], start: Da
         dueDate,
         dueDateValue: toUTCDateInputValue(dueDate),
         status: occurrence?.status ?? (dueDate < today ? "OVERDUE" : "PENDING"),
-        amount: occurrence?.amount != null ? Number(occurrence.amount) : (statementAmount ?? estimated),
+        amount,
+        amountPen,
+        parts,
         estimated,
         statementAmount,
+        estimatedUsd,
+        statementAmountUsd,
+        amountUsd,
+        exchangeRate,
         cycleChange,
         installment: loanInstallment
           ? {
@@ -207,6 +309,7 @@ async function buildEntries(userId: string, payments: LoadedPayment[], start: Da
             }
           : null,
         transactionId: occurrence?.transactionId ?? null,
+        usdTransactionId: occurrence?.usdTransactionId ?? null,
         accountId: payment.accountId,
         paymentMethod: payment.paymentMethod,
         cycle: cycle ? { start: cycle.start, end: cycle.end, closing: cycle.closing, open: cycle.end > today } : null,
@@ -261,8 +364,9 @@ export async function getUpcomingAndOverdue() {
     shiftDay(today, UPCOMING_DAYS)
   );
   return {
-    overdue: entries.filter((e) => e.status === "OVERDUE"),
-    upcoming: entries.filter((e) => e.dueDate >= today && e.status === "PENDING"),
+    // Un vencimiento pagado en parte sigue pendiente por lo que falta.
+    overdue: entries.filter((e) => e.status === "OVERDUE" || (e.status === "PARTIAL" && e.dueDate < today)),
+    upcoming: entries.filter((e) => e.dueDate >= today && (e.status === "PENDING" || e.status === "PARTIAL")),
   };
 }
 

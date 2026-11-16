@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/auth";
 import { parseDateOnly, shiftDay, todayInLima } from "@/lib/date";
+import { roundMoney } from "@/lib/format";
 import {
   billingCycle,
   billingIndexOf,
@@ -13,7 +14,7 @@ import {
 } from "@/lib/schedule";
 import { amountLockInfo } from "@/lib/transaction-lock";
 import { getPaymentEntries, type CalendarEntry } from "@/features/schedule/queries";
-import { loadUserCards } from "./lookup";
+import { latestExchangeRate, loadUserCards } from "./lookup";
 import type { PaymentMethod } from "@/generated/prisma/client";
 
 // Una tarjeta es un ScheduledPayment de tipo CREDIT_CARD. Sus ciclos salen del
@@ -28,6 +29,12 @@ const HISTORY_CYCLES = 6;
 export async function getCreditCardOptions() {
   const userId = await requireUserId();
   return loadUserCards(userId);
+}
+
+// Último tipo de cambio de un pago en dólares (null si nunca hubo): estima en soles los consumos en US$.
+export async function getLastExchangeRate() {
+  const userId = await requireUserId();
+  return latestExchangeRate(userId);
 }
 
 type CardRow = { id: string; startDate: Date; closingDay: number | null; dueDay: number | null };
@@ -64,10 +71,18 @@ function cycleIndexForDue(rule: CardRule, byMonth: Map<number, BillingPeriod>, r
   return null;
 }
 
-function sumInCycle(transactions: { date: Date; amount: unknown }[], cycle: BillingCycle) {
-  return transactions
-    .filter((t) => t.date >= cycle.start && t.date < cycle.end)
-    .reduce((sum, t) => sum + Number(t.amount), 0);
+// Consumos del ciclo por moneda: `pen` en soles y `usd` en dólares (los de dólares
+// no suman en soles: su monto en soles es solo un estimado hasta que se paga).
+export type CycleTotal = { pen: number; usd: number };
+
+type SpentRow = { date: Date; amount: unknown; currency: "PEN" | "USD"; foreignAmount: unknown };
+
+function sumInCycle(transactions: SpentRow[], cycle: BillingCycle): CycleTotal {
+  const inCycle = transactions.filter((t) => t.date >= cycle.start && t.date < cycle.end);
+  return {
+    pen: roundMoney(inCycle.filter((t) => t.currency === "PEN").reduce((sum, t) => sum + Number(t.amount), 0)),
+    usd: roundMoney(inCycle.filter((t) => t.currency === "USD").reduce((sum, t) => sum + Number(t.foreignAmount ?? 0), 0)),
+  };
 }
 
 // Vencimiento del calendario que corresponde a un ciclo (null si es anterior a la tarjeta).
@@ -84,9 +99,16 @@ export type CardSummary = {
   id: string;
   name: string;
   active: boolean;
-  current: { start: Date; closing: Date; dueDate: Date; spent: number } | null;
+  current: { start: Date; closing: Date; dueDate: Date; spent: CycleTotal } | null;
   // Lo próximo por pagar: vencido o pendiente (o el siguiente si todo está pagado).
-  next: { dueDate: Date; dueDateValue: string; amount: number; status: CalendarEntry["status"] } | null;
+  next: {
+    dueDate: Date;
+    dueDateValue: string;
+    amountPen: number;
+    amountUsd: number;
+    exchangeRate: number | null;
+    status: CalendarEntry["status"];
+  } | null;
 };
 
 export async function getCards(): Promise<CardSummary[]> {
@@ -115,7 +137,7 @@ export async function getCards(): Promise<CardSummary[]> {
           ...chargesWhere(userId, cards.map((c) => c.id)),
           date: { gte: new Date(Math.min(...[...cycles.values()].map((c) => c.start.getTime()))) },
         },
-        select: { cardId: true, date: true, amount: true },
+        select: { cardId: true, date: true, amount: true, currency: true, foreignAmount: true },
       })
     : [];
 
@@ -145,7 +167,14 @@ export async function getCards(): Promise<CardSummary[]> {
             }
           : null,
         next: next
-          ? { dueDate: next.dueDate, dueDateValue: next.dueDateValue, amount: next.amount, status: next.status }
+          ? {
+              dueDate: next.dueDate,
+              dueDateValue: next.dueDateValue,
+              amountPen: next.amountPen,
+              amountUsd: next.amountUsd,
+              exchangeRate: next.exchangeRate,
+              status: next.status,
+            }
           : null,
       };
     })
@@ -158,6 +187,10 @@ export type CardCharge = {
   createdAt: Date;
   kind: "EXPENSE";
   amount: number;
+  // Consumo en dólares: `amount` es el equivalente en soles (estimado hasta que se paga y hay tipo de cambio).
+  currency: "PEN" | "USD";
+  foreignAmount: number | null;
+  exchangeRate: number | null;
   reason: string | null;
   description: string | null;
   categoryId: string;
@@ -215,7 +248,7 @@ export async function getCardDetail(
   const [spending, charges, candidates, entries, occurrence, chargeCount] = await Promise.all([
     prisma.transaction.findMany({
       where: { ...chargesWhere(userId, [card.id]), date: { gte: from, lt: to } },
-      select: { date: true, amount: true },
+      select: { date: true, amount: true, currency: true, foreignAmount: true },
     }),
     prisma.transaction.findMany({
       where: { ...chargesWhere(userId, [card.id]), date: { gte: cycle.start, lt: cycle.end } },
@@ -246,6 +279,7 @@ export async function getCardDetail(
       where: { scheduledPaymentId_dueDate: { scheduledPaymentId: card.id, dueDate: cycle.dueDate } },
       select: {
         transaction: { select: { id: true, date: true, amount: true, account: { select: { name: true } } } },
+        usdTransaction: { select: { id: true, date: true, amount: true, account: { select: { name: true } } } },
       },
     }),
     prisma.transaction.count({ where: chargesWhere(userId, [card.id]) }),
@@ -256,7 +290,9 @@ export async function getCardDetail(
   const isLegacy = (t: { paymentMethod: PaymentMethod | null; accountId: string | null }) =>
     t.paymentMethod === "CREDIT_CARD" && t.accountId !== null;
   const sortedCandidates = [...candidates].sort((a, b) => Number(isLegacy(b)) - Number(isLegacy(a)));
-  const payment = occurrence?.transaction ?? null;
+  // El pago del periodo puede ser en soles, en dólares o los dos: se muestran juntos.
+  const payment = occurrence?.transaction ?? occurrence?.usdTransaction ?? null;
+  const paymentTotal = roundMoney(Number(occurrence?.transaction?.amount ?? 0) + Number(occurrence?.usdTransaction?.amount ?? 0));
 
   return {
     card: {
@@ -283,7 +319,7 @@ export async function getCardDetail(
         ? {
             transactionId: payment.id,
             date: payment.date,
-            amount: Number(payment.amount),
+            amount: paymentTotal,
             accountName: payment.account?.name ?? null,
           }
         : null,
@@ -304,6 +340,9 @@ export async function getCardDetail(
         createdAt: t.createdAt,
         kind: "EXPENSE",
         amount: Number(t.amount),
+        currency: t.currency,
+        foreignAmount: t.foreignAmount != null ? Number(t.foreignAmount) : null,
+        exchangeRate: t.exchangeRate != null ? Number(t.exchangeRate) : null,
         reason: t.reason,
         description: t.description,
         categoryId: t.categoryId,

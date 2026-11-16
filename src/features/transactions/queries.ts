@@ -38,6 +38,7 @@ export async function getTransactionsForRange(
       loanPrepayment: { select: { scheduledPaymentId: true } },
       // Si es el pago de una tarjeta, el periodo que pagó.
       scheduledOccurrence: { select: { scheduledPaymentId: true, dueDate: true } },
+      usdScheduledOccurrence: { select: { scheduledPaymentId: true, dueDate: true } },
       importedMovements: {
         select: { importId: true, createdTransaction: true, import: { select: { source: true } } },
         orderBy: { occurredAt: "asc" },
@@ -56,6 +57,10 @@ export async function getTransactionsForRange(
     reason: t.reason,
     description: t.description,
     amount: Number(t.amount),
+    // Consumos y pagos en dólares: `amount` sigue en soles (estimado si aún no hay tipo de cambio).
+    currency: t.currency,
+    foreignAmount: t.foreignAmount === null ? null : Number(t.foreignAmount),
+    exchangeRate: t.exchangeRate === null ? null : Number(t.exchangeRate),
     kind: t.kind,
     paymentMethod: t.paymentMethod,
     cardId: t.cardId,
@@ -76,10 +81,14 @@ export async function getTransactionsForRange(
           }
         : null,
     // Pago de tarjeta: lleva al periodo que pagó.
-    cardPaymentHref:
-      t.kind === "CARD_PAYMENT" && t.scheduledOccurrence
-        ? `/dashboard/tarjetas/${t.scheduledOccurrence.scheduledPaymentId}?pago=${toUTCDateInputValue(t.scheduledOccurrence.dueDate)}`
-        : null,
+    cardPaymentHref: (() => {
+      const occurrence = t.scheduledOccurrence ?? t.usdScheduledOccurrence;
+      return t.kind === "CARD_PAYMENT" && occurrence
+        ? `/dashboard/tarjetas/${occurrence.scheduledPaymentId}?pago=${toUTCDateInputValue(occurrence.dueDate)}`
+        : null;
+    })(),
+    // Pago en dólares: se puede editar su monto y tipo de cambio.
+    isUsdPayment: t.kind === "CARD_PAYMENT" && t.usdScheduledOccurrence !== null,
     imports: t.importedMovements.map((m) => ({
       importId: m.importId,
       source: m.import.source,

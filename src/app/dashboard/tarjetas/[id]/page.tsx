@@ -28,12 +28,16 @@ import {
   formatCurrency,
   formatDate,
   formatDayMonth,
+  formatEntryAmount,
+  formatMixed,
+  formatRate,
+  formatUsd,
   formatTransactionDate,
   formatTransactionDateTime,
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-const STATUS_LABELS = { PENDING: "Pendiente", OVERDUE: "Vencido", PAID: "Pagado", SKIPPED: "Omitido" } as const;
+const STATUS_LABELS = { PENDING: "Pendiente", OVERDUE: "Vencido", PARTIAL: "Pagado en parte", PAID: "Pagado", SKIPPED: "Omitido" } as const;
 
 // "Noviembre de 2026" del mes del cierre.
 function cycleTitle(closing: Date) {
@@ -63,6 +67,9 @@ export default async function TarjetaPage({
   const { card, cycle, history, charges, candidates, legacyCount } = detail;
   const entry = cycle.entry;
   const paid = entry?.status === "PAID";
+  // Un consumo está pagado si el vencimiento está pagado o su moneda ya se resolvió.
+  const chargePaid = (currency: "PEN" | "USD") =>
+    paid || (entry?.status === "PARTIAL" && !!entry.parts?.[currency === "USD" ? "usd" : "pen"].settled);
 
   return (
     <div className="flex flex-col gap-4">
@@ -137,7 +144,7 @@ export default async function TarjetaPage({
               <span className="text-xs text-muted-foreground">
                 Consumos del {formatDayMonth(cycle.start)} al {formatDayMonth(cycle.closing)}
               </span>
-              <span className="text-2xl font-semibold text-expense tabular-nums">{formatCurrency(cycle.spent)}</span>
+              <span className="text-2xl font-semibold text-expense tabular-nums">{formatMixed(cycle.spent.pen, cycle.spent.usd)}</span>
               <span className="text-xs text-muted-foreground">
                 {charges.length === 1 ? "1 consumo" : `${charges.length} consumos`}
                 {charges.length > 0 && (paid ? " · pagados" : " · pendientes de pago")}
@@ -157,7 +164,7 @@ export default async function TarjetaPage({
                     <OccurrenceStatusMark status={entry.status} />
                     <span className="text-sm">{STATUS_LABELS[entry.status]}</span>
                     <span className={cn("ml-auto text-lg font-semibold", occurrenceAmountClass(entry.status))}>
-                      {formatCurrency(entry.amount)}
+                      {formatEntryAmount(entry)}
                     </span>
                   </div>
                   {cycle.payment && (
@@ -235,11 +242,22 @@ export default async function TarjetaPage({
                       <TableCell className="max-w-40">
                         <p className="truncate">{t.reason ?? t.description ?? "—"}</p>
                         <p className="truncate text-xs text-muted-foreground sm:hidden">{t.categoryName}</p>
-                        <ChargeStatusChip status={paid ? "PAID" : "PENDING"} className="mt-1" />
+                        <ChargeStatusChip status={chargePaid(t.currency) ? "PAID" : "PENDING"} className="mt-1" />
                       </TableCell>
                       <TableCell className="hidden sm:table-cell">{t.categoryName}</TableCell>
                       <TableCell className="text-right font-medium whitespace-nowrap text-expense tabular-nums">
-                        -{formatCurrency(t.amount)}
+                        {t.currency === "USD" && t.foreignAmount !== null ? (
+                          <>
+                            -{formatUsd(t.foreignAmount)}
+                            <span className="block text-xs font-normal text-muted-foreground">
+                              {t.exchangeRate !== null
+                                ? `${formatCurrency(t.amount)} · TC ${formatRate(t.exchangeRate)}`
+                                : `≈ ${formatCurrency(t.amount)} (estimado)`}
+                            </span>
+                          </>
+                        ) : (
+                          <>-{formatCurrency(t.amount)}</>
+                        )}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center justify-end">
@@ -248,6 +266,9 @@ export default async function TarjetaPage({
                             kind={t.kind}
                             currentDate={toUTCDateInputValue(t.date)}
                             currentAmount={t.amount}
+                            currentCurrency={t.currency}
+                            currentForeignAmount={t.foreignAmount}
+                            currentExchangeRate={t.exchangeRate}
                             amountLock={t.amountLock}
                             currentCategoryId={t.categoryId}
                             currentPaymentMethod={t.paymentMethod}
@@ -299,7 +320,7 @@ export default async function TarjetaPage({
                       </p>
                     </div>
                     <span className="shrink-0 text-sm font-semibold text-expense tabular-nums">
-                      {formatCurrency(c.spent)}
+                      {formatMixed(c.spent.pen, c.spent.usd)}
                     </span>
                   </Link>
                 </li>

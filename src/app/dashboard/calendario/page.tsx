@@ -19,12 +19,16 @@ import {
   type CalendarEntry,
 } from "@/features/schedule/queries";
 import { daysUntil, monthLabel, monthRange, parseMonthParam } from "@/lib/date";
-import { formatCurrency } from "@/lib/format";
+import { formatMixed } from "@/lib/format";
 import { publicOrigin } from "@/lib/origin";
 import { cn } from "@/lib/utils";
 
+// Pendientes y vencidos: `amount` de una tarjeta es solo su parte en soles; los dólares van aparte.
 function total(entries: CalendarEntry[]) {
-  return entries.reduce((sum, entry) => sum + entry.amount, 0);
+  return {
+    pen: entries.reduce((sum, entry) => sum + entry.amount, 0),
+    usd: entries.reduce((sum, entry) => sum + entry.amountUsd, 0),
+  };
 }
 
 function dueLabel(entry: CalendarEntry) {
@@ -62,10 +66,11 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
   const httpsUrl = feedPath && site ? `${site.protocol}:${feedPath}` : null;
   const webcalUrl = feedPath ? `webcal:${feedPath}` : null;
 
-  const pendingInMonth = entries.filter((e) => e.status === "PENDING" || e.status === "OVERDUE");
+  const pendingInMonth = entries.filter((e) => e.status === "PENDING" || e.status === "OVERDUE" || e.status === "PARTIAL");
   // Los prepagos planificados del mes también son plata que va a salir.
   const pendingPrepayments = prepayments.filter((p) => p.status !== "DONE");
   const pendingPrepaymentsTotal = pendingPrepayments.reduce((sum, p) => sum + p.amount, 0);
+  const pendingTotal = total(pendingInMonth);
   const attention = [...overdue, ...upcoming];
 
   return (
@@ -97,7 +102,7 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
               <CardHeader>
                 <CardDescription>Por pagar en {monthLabel(year, month).toLowerCase()}</CardDescription>
                 <CardTitle className="font-sans text-2xl not-italic font-semibold tabular-nums">
-                  {formatCurrency(total(pendingInMonth) + pendingPrepaymentsTotal)}
+                  {formatMixed(pendingTotal.pen + pendingPrepaymentsTotal, pendingTotal.usd)}
                 </CardTitle>
                 <p className="text-xs text-muted-foreground">
                   {countLabel(pendingInMonth.length + pendingPrepayments.length, "pago pendiente", "pagos pendientes")}
@@ -113,7 +118,7 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
                     overdue.length > 0 && "text-destructive"
                   )}
                 >
-                  {formatCurrency(total(overdue))}
+                  {formatMixed(total(overdue).pen, total(overdue).usd)}
                 </CardTitle>
                 <p className="text-xs text-muted-foreground">
                   {overdue.length === 0 ? "Estás al día" : `${overdue.length} sin pagar`}
@@ -124,7 +129,7 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
               <CardHeader>
                 <CardDescription>Próximos 7 días</CardDescription>
                 <CardTitle className="font-sans text-2xl not-italic font-semibold tabular-nums text-expense">
-                  {formatCurrency(total(upcoming))}
+                  {formatMixed(total(upcoming).pen, total(upcoming).usd)}
                 </CardTitle>
                 <p className="text-xs text-muted-foreground">
                   {countLabel(upcoming.length, "pago por vencer", "pagos por vencer")}

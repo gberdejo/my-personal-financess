@@ -12,7 +12,7 @@ import {
 import type { LoanPrepaymentRow } from "@/features/loans/queries";
 import type { CalendarEntry } from "@/features/schedule/queries";
 import { monthRange, shiftDay, todayInLima, toUTCDateInputValue } from "@/lib/date";
-import { formatCurrency, formatTransactionDate } from "@/lib/format";
+import { formatCurrency, formatEntryAmount, formatTransactionDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type AccountOption = { id: string; name: string };
@@ -124,7 +124,7 @@ export function CalendarMonthGrid({
                               occurrenceAmountClass(entry.status)
                             )}
                           >
-                            {formatCurrency(entry.amount)}
+                            {formatEntryAmount(entry)}
                             {entry.cycleChange && <CycleChangeMark className="size-3" />}
                           </span>
                         </span>

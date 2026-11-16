@@ -18,12 +18,13 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { CategoryCombobox } from "@/components/finance/category-combobox";
+import { ChargeCurrencyField, type ChargeCurrency } from "@/components/finance/charge-currency-field";
 import { PaymentMethodSelect } from "@/components/finance/payment-method-select";
 import { ReceiptLinksField } from "@/components/finance/receipt-links-field";
 import { ReasonField } from "@/components/finance/reason-field";
 import { useCreateCategory } from "@/components/finance/use-create-category";
 import { updateTransaction } from "@/features/transactions/actions";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatUsd } from "@/lib/format";
 import { AMOUNT_LOCK_LABELS, type AmountLock } from "@/lib/transaction-lock";
 import type { ReasonSuggestion } from "@/features/categories/queries";
 import type { PaymentMethod } from "@/generated/prisma/client";
@@ -37,6 +38,9 @@ export function EditTransactionDialog({
   kind,
   currentDate,
   currentAmount,
+  currentCurrency = "PEN",
+  currentForeignAmount = null,
+  currentExchangeRate = null,
   amountLock,
   currentCategoryId,
   currentPaymentMethod,
@@ -53,7 +57,11 @@ export function EditTransactionDialog({
   transactionId: string;
   kind: MovementKind;
   currentDate: string;
+  // Siempre en soles. Un consumo en dólares trae además su monto en US$ y, si ya se pagó, su tipo de cambio.
   currentAmount: number;
+  currentCurrency?: ChargeCurrency;
+  currentForeignAmount?: number | null;
+  currentExchangeRate?: number | null;
   // Gasto de un prepago: el monto se ve pero no se edita.
   amountLock: { kind: AmountLock; href: string } | null;
   currentCategoryId: string;
@@ -79,6 +87,12 @@ export function EditTransactionDialog({
   const [reasonPrefill, setReasonPrefill] = useState({ key: 0, value: currentReason ?? "" });
   const [method, setMethod] = useState<PaymentMethod | null>(currentPaymentMethod);
   const isCharge = kind === "EXPENSE" && currentAccountId === null;
+  const initialAmount = (currentCurrency === "USD" && currentForeignAmount !== null ? currentForeignAmount : currentAmount).toFixed(2);
+  const [currency, setCurrency] = useState<ChargeCurrency>(currentCurrency);
+  // Se controla para estimar los soles de un consumo en dólares.
+  const [amount, setAmount] = useState(initialAmount);
+  // Solo un consumo que sigue con tarjeta puede ser en dólares.
+  const isUsd = isCharge && method === "CREDIT_CARD" && !amountLock && currency === "USD";
   // Un consumo que deja de ser con tarjeta pasa a salir de una cuenta.
   const needsAccount = isCharge && method !== "CREDIT_CARD";
   const {
@@ -103,11 +117,30 @@ export function EditTransactionDialog({
     wasPending.current = pending;
   }, [pending, state]);
 
+  // Un consumo en dólares que pasa a soles muestra los soles que tenía (exactos o estimados);
+  // si vuelve a dólares, vuelve su monto en US$. Se hace en los handlers, no en un efecto.
+  function syncAmount(toUsd: boolean) {
+    if (currentCurrency !== "USD" || currentForeignAmount === null) return;
+    setAmount((toUsd ? currentForeignAmount : currentAmount).toFixed(2));
+  }
+
+  function changeMethod(next: PaymentMethod | null) {
+    setMethod(next);
+    syncAmount(next === "CREDIT_CARD" && currency === "USD");
+  }
+
+  function changeCurrency(next: ChargeCurrency) {
+    setCurrency(next);
+    syncAmount(method === "CREDIT_CARD" && next === "USD");
+  }
+
   // Al reabrir, arranca de nuevo desde los valores guardados.
   function handleOpenChange(next: boolean) {
     setOpen(next);
     if (next) {
       setMethod(currentPaymentMethod);
+      setCurrency(currentCurrency);
+      setAmount(initialAmount);
       setCategoryId(currentCategoryId);
       setCategoryError(null);
       setReasonPrefill((prev) => ({ key: prev.key + 1, value: currentReason ?? "" }));
@@ -140,14 +173,16 @@ export function EditTransactionDialog({
         <form action={formAction} className="flex flex-col gap-4">
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-2">
-              <Label htmlFor="edit-tx-amount">Monto (S/)</Label>
+              <Label htmlFor="edit-tx-amount">{isUsd ? "Monto (US$)" : "Monto (S/)"}</Label>
               {amountLock ? (
                 <p
                   id="edit-tx-amount"
                   className="flex h-8 items-center gap-1.5 rounded-lg border border-input bg-muted/60 px-2.5 text-sm tabular-nums"
                 >
                   <Lock className="size-3.5 text-muted-foreground" />
-                  {formatCurrency(currentAmount)}
+                  {currentCurrency === "USD" && currentForeignAmount !== null
+                    ? formatUsd(currentForeignAmount)
+                    : formatCurrency(currentAmount)}
                 </p>
               ) : (
                 <Input
@@ -157,7 +192,8 @@ export function EditTransactionDialog({
                   step="0.01"
                   min="0.01"
                   inputMode="decimal"
-                  defaultValue={currentAmount.toFixed(2)}
+                  value={amount}
+                  onChange={(event) => setAmount(event.target.value)}
                   className="tabular-nums"
                   required
                 />
@@ -168,6 +204,11 @@ export function EditTransactionDialog({
               <Input id="edit-tx-date" name="date" type="date" defaultValue={currentDate} required />
             </div>
           </div>
+          {!amountLock && !isUsd && currentCurrency === "USD" && (
+            <p className="-mt-2 text-xs text-muted-foreground tabular-nums">
+              Pasa a soles: {formatCurrency(Number(amount) || 0)}
+            </p>
+          )}
           {amountLock && (
             <p className="-mt-2 text-xs text-muted-foreground">
               {AMOUNT_LOCK_LABELS[amountLock.kind]}{" "}
@@ -186,7 +227,17 @@ export function EditTransactionDialog({
               legacyAccountName={
                 isCharge ? undefined : (accounts.find((a) => a.id === currentAccountId)?.name ?? null)
               }
-              onMethodChange={setMethod}
+              onMethodChange={changeMethod}
+            />
+          )}
+
+          {isCharge && method === "CREDIT_CARD" && !amountLock && (
+            <ChargeCurrencyField
+              id="edit-tx-currency"
+              currency={currency}
+              onCurrencyChange={changeCurrency}
+              amount={amount}
+              ownRate={currentCurrency === "USD" ? currentExchangeRate : null}
             />
           )}
 

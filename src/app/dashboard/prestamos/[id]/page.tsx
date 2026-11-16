@@ -29,7 +29,7 @@ type TimelineItem = { kind: "installment"; date: Date; row: Row } | { kind: "pre
 
 const PREPAYMENT_STATUS_TEXT = { PLANNED: "Planificado", DUE: "Sin registrar", DONE: "Registrado" } as const;
 
-const STATUS_TEXT = { PENDING: "Pendiente", OVERDUE: "Vencida", PAID: "Pagada", SKIPPED: "Omitida" } as const;
+const STATUS_TEXT = { PENDING: "Pendiente", OVERDUE: "Vencida", PARTIAL: "Pagada en parte", PAID: "Pagada", SKIPPED: "Omitida" } as const;
 
 function formatPercent(rate: number, digits = 2) {
   return `${(rate * 100).toLocaleString("es-PE", { maximumFractionDigits: digits })} %`;

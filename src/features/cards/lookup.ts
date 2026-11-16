@@ -78,3 +78,25 @@ export async function cardPaymentCategoryId() {
   const created = await prisma.category.create({ data: where, select: { id: true } });
   return created.id;
 }
+
+// Último tipo de cambio con el que se pagó una tarjeta en dólares: sirve para
+// estimar en soles los consumos en dólares que todavía no se pagan.
+export async function latestExchangeRate(userId: string) {
+  const [payment, marked] = await Promise.all([
+    prisma.transaction.findFirst({
+      where: { userId, kind: "CARD_PAYMENT", currency: "USD", exchangeRate: { not: null } },
+      select: { exchangeRate: true, createdAt: true },
+      orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+    }),
+    // Los vencimientos marcados con "solo marcar" guardan su TC sin crear pagos.
+    prisma.scheduledOccurrence.findFirst({
+      where: { exchangeRate: { not: null }, scheduledPayment: { userId, type: "CREDIT_CARD" } },
+      select: { exchangeRate: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
+  const latest = [payment, marked]
+    .filter((item) => item?.exchangeRate != null)
+    .sort((a, b) => b!.createdAt.getTime() - a!.createdAt.getTime())[0];
+  return latest?.exchangeRate != null ? Number(latest.exchangeRate) : null;
+}

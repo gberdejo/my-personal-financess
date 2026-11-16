@@ -4,13 +4,14 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/auth";
 import { parseDateOnly } from "@/lib/date";
-import { formatCurrency, formatDate } from "@/lib/format";
+import { formatCurrency } from "@/lib/format";
 import { isPaymentMethod, isScheduleFrequency, MONTH_NAMES } from "@/lib/labels";
 import { billingMonth, monthIndex, monthStart, periodsByMonth, ruleBillingMonth } from "@/lib/schedule";
 import type { PaymentMethod, ScheduledPaymentType, ScheduleFrequency } from "@/generated/prisma/client";
 import { freezeRuleMonthsWithData, isDueDateOf, moveDueDate } from "./periods";
 import { getCalendarEntry } from "./queries";
-import { cardPaymentCategoryId, readExpenseSource } from "@/features/cards/lookup";
+import { readExpenseSource } from "@/features/cards/lookup";
+import { undoCardPart } from "@/features/cards/payments";
 
 export type ScheduleActionState = { error?: string } | null;
 
@@ -402,66 +403,24 @@ export async function payOccurrence(
   if ("error" in found) return { error: found.error };
   const { payment, dueDate } = found;
 
+  // Las tarjetas se pagan por parte (soles y dólares) desde `payCardPart`.
+  if (payment.type === "CREDIT_CARD") return { error: "Pagá la tarjeta desde sus apartados de soles y dólares." };
+
   const amount = Number(formData.get("amount"));
   if (!amount || amount <= 0) return { error: "El monto debe ser mayor a 0." };
 
-  const isCard = payment.type === "CREDIT_CARD";
-  // En tarjeta se guarda cuánto sumaban sus consumos, para avisar si cambian después.
-  const cardEntry = isCard ? await getCalendarEntry(payment.id, dueDateValue) : null;
-  const estimatedAtPayment = cardEntry?.estimated ?? null;
-
   // Solo se marca si el pago ya está en Transacciones (ej. cuotas de un préstamo
-  // ya en curso, o una tarjeta cuyos gastos se descontaron uno por uno).
+  // ya en curso).
   if (formData.get("markOnly") === "on") {
     await prisma.scheduledOccurrence.create({
-      data: { scheduledPaymentId: payment.id, dueDate, status: "PAID", amount, estimatedAtPayment },
+      data: { scheduledPaymentId: payment.id, dueDate, status: "PAID", amount },
     });
-    revalidateSchedule();
+    revalidateAll();
     return null;
   }
 
   const date = readOptionalDate(formData, "date");
   if (!date || date === "invalid") return { error: "La fecha no es válida." };
-
-  // Pagar la tarjeta: una sola salida de la cuenta por todo el periodo. No es un
-  // gasto (CARD_PAYMENT): los gastos son sus consumos, que ya se contaron.
-  if (isCard) {
-    const account = await findOwnAccount(userId, readText(formData, "accountId"));
-    if (!account) return { error: "Elegí la cuenta desde la que pagás la tarjeta." };
-    const categoryId = await cardPaymentCategoryId();
-    const cycle = cardEntry?.cycle;
-
-    await prisma.$transaction(async (tx) => {
-      const transaction = await tx.transaction.create({
-        data: {
-          userId,
-          accountId: account.id,
-          categoryId,
-          kind: "CARD_PAYMENT",
-          amount,
-          reason: `Pago ${payment.name}`,
-          description: cycle
-            ? `Consumos del ${formatDate(cycle.start)} al ${formatDate(cycle.closing)}`
-            : null,
-          date,
-          paymentMethod: null,
-        },
-      });
-      await tx.scheduledOccurrence.create({
-        data: {
-          scheduledPaymentId: payment.id,
-          dueDate,
-          status: "PAID",
-          amount,
-          estimatedAtPayment,
-          transactionId: transaction.id,
-        },
-      });
-    });
-
-    revalidateAll();
-    return null;
-  }
 
   const paymentMethod = readText(formData, "paymentMethod");
   if (!isPaymentMethod(paymentMethod)) return { error: "Elegí un método de pago." };
@@ -521,13 +480,13 @@ export async function acknowledgeCardCycleChange(scheduledPaymentId: string, due
 
   await prisma.scheduledOccurrence.update({
     where: { scheduledPaymentId_dueDate: { scheduledPaymentId, dueDate: entry.dueDate } },
-    data: { estimatedAtPayment: entry.estimated },
+    data: { estimatedAtPayment: entry.estimated, estimatedUsdAtPayment: entry.estimatedUsd },
   });
   revalidateSchedule();
 }
 
 // Vuelve la cuota a pendiente. Si generó un gasto, se borra el gasto y la cuota
-// cae con él (onDelete: Cascade).
+// cae con él.
 export async function undoOccurrence(scheduledPaymentId: string, dueDateValue: string) {
   const userId = await requireUserId();
 
@@ -536,14 +495,20 @@ export async function undoOccurrence(scheduledPaymentId: string, dueDateValue: s
 
   const occurrence = await prisma.scheduledOccurrence.findFirst({
     where: { scheduledPaymentId, dueDate, scheduledPayment: { userId } },
+    include: { scheduledPayment: { select: { type: true } } },
   });
   if (!occurrence) return;
 
-  if (occurrence.transactionId) {
+  if (occurrence.scheduledPayment.type === "CREDIT_CARD" && occurrence.status !== "SKIPPED") {
+    // Tarjeta: deshace las dos partes (cada una borra solo su transacción, si existe).
+    await undoCardPart(scheduledPaymentId, dueDateValue, "PEN");
+    await undoCardPart(scheduledPaymentId, dueDateValue, "USD");
+  } else if (occurrence.transactionId) {
+    // El gasto se borra y la cuota cae con él (onDelete: Cascade).
     await prisma.transaction.deleteMany({ where: { id: occurrence.transactionId, userId } });
-    revalidateAll();
   } else {
     await prisma.scheduledOccurrence.delete({ where: { id: occurrence.id } });
-    revalidateSchedule();
   }
+  revalidateAll();
+  revalidatePath("/dashboard", "layout");
 }

@@ -5,10 +5,10 @@ import { CardFormDialog } from "@/components/finance/card-form-dialog";
 import { OccurrenceStatusMark, occurrenceAmountClass } from "@/components/finance/occurrence-row";
 import { getCards } from "@/features/cards/queries";
 import { daysUntil } from "@/lib/date";
-import { formatCountdown, formatCurrency, formatDayMonth, formatTransactionDate } from "@/lib/format";
+import { formatCountdown, formatDayMonth, formatEntryAmount, formatMixed, formatTransactionDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-const STATUS_LABELS = { PENDING: "Pendiente", OVERDUE: "Vencido", PAID: "Pagado", SKIPPED: "Omitido" } as const;
+const STATUS_LABELS = { PENDING: "Pendiente", OVERDUE: "Vencido", PARTIAL: "Pagado en parte", PAID: "Pagado", SKIPPED: "Omitido" } as const;
 
 export default async function TarjetasPage() {
   const cards = await getCards();
@@ -52,7 +52,7 @@ export default async function TarjetasPage() {
                         Ciclo actual · del {formatDayMonth(card.current.start)} al {formatDayMonth(card.current.closing)}
                       </span>
                       <span className="text-2xl font-semibold text-expense tabular-nums">
-                        {formatCurrency(card.current.spent)}
+                        {formatMixed(card.current.spent.pen, card.current.spent.usd)}
                       </span>
                     </div>
                   )}
@@ -68,7 +68,7 @@ export default async function TarjetasPage() {
                         </p>
                       </div>
                       <span className={cn("font-medium tabular-nums", occurrenceAmountClass(card.next.status))}>
-                        {formatCurrency(card.next.amount)}
+                        {formatEntryAmount(card.next)}
                       </span>
                     </div>
                   )}

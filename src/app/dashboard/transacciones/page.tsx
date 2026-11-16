@@ -13,6 +13,7 @@ import type { PeriodSelection } from "@/components/finance/period-range-filter";
 import { TransactionsFilters } from "@/components/finance/transactions-filters";
 import { ConfirmDeleteButton } from "@/components/finance/confirm-delete-button";
 import { EditTransactionDialog } from "@/components/finance/edit-transaction-dialog";
+import { EditUsdPaymentDialog } from "@/components/finance/edit-usd-payment-dialog";
 import { ReceiptsDialog } from "@/components/finance/receipts-dialog";
 import { ChargeStatusChip } from "@/components/finance/charge-status-chip";
 import { TransactionFormDialog } from "@/components/finance/transaction-form-dialog";
@@ -23,7 +24,7 @@ import { getTransactionsForRange, type PaymentMethodFilter as MethodFilter } fro
 import { getCreditCardOptions } from "@/features/cards/queries";
 import { monthRange, parseMonthParam, shiftDay, todayInLima, toUTCDateInputValue } from "@/lib/date";
 import { getPresetRange, isPeriodPreset, periodNowInLima } from "@/lib/period";
-import { formatCurrency, formatTransactionDateTime } from "@/lib/format";
+import { formatCurrency, formatRate, formatTransactionDateTime, formatUsd } from "@/lib/format";
 import { isPaymentMethod, NO_PAYMENT_METHOD_LABEL, PAYMENT_METHOD_LABELS } from "@/lib/labels";
 import { IMPORT_SOURCES, isImportSource } from "@/lib/imports/sources";
 import { normalizeReason } from "@/lib/reason";
@@ -262,27 +263,51 @@ export default async function TransaccionesPage({ searchParams }: { searchParams
                     }`}
                   >
                     {t.kind === "INCOME" ? "+" : "-"}
-                    {formatCurrency(t.amount)}
+                    {t.currency === "USD" && t.foreignAmount !== null ? (
+                      <>
+                        {formatUsd(t.foreignAmount)}
+                        <span className="block text-xs font-normal text-muted-foreground">
+                          {t.exchangeRate !== null
+                            ? `S/ ${t.amount.toFixed(2)} · TC ${formatRate(t.exchangeRate)}`
+                            : `≈ S/ ${t.amount.toFixed(2)} (estimado)`}
+                        </span>
+                      </>
+                    ) : (
+                      formatCurrency(t.amount)
+                    )}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center justify-end">
                       <ReceiptsDialog urls={t.receiptUrls} title={t.reason ?? t.description ?? undefined} />
                       {t.kind === "CARD_PAYMENT" ? (
                         // El pago se ve y se deshace desde el periodo que pagó.
-                        t.cardPaymentHref && (
-                          <Button asChild variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
-                            <Link href={t.cardPaymentHref}>
-                              <CreditCard className="size-4" />
-                              <span className="sr-only">Ver el periodo pagado</span>
-                            </Link>
-                          </Button>
-                        )
+                        <>
+                          {t.isUsdPayment && t.foreignAmount !== null && t.exchangeRate !== null && (
+                            <EditUsdPaymentDialog
+                              transactionId={t.id}
+                              currentDate={toUTCDateInputValue(t.date)}
+                              currentUsd={t.foreignAmount}
+                              currentRate={t.exchangeRate}
+                            />
+                          )}
+                          {t.cardPaymentHref && (
+                            <Button asChild variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
+                              <Link href={t.cardPaymentHref}>
+                                <CreditCard className="size-4" />
+                                <span className="sr-only">Ver el periodo pagado</span>
+                              </Link>
+                            </Button>
+                          )}
+                        </>
                       ) : (
                       <EditTransactionDialog
                         transactionId={t.id}
                         kind={t.kind}
                         currentDate={toUTCDateInputValue(t.date)}
                         currentAmount={t.amount}
+                        currentCurrency={t.currency}
+                        currentForeignAmount={t.foreignAmount}
+                        currentExchangeRate={t.exchangeRate}
                         amountLock={t.amountLock}
                         currentCategoryId={t.categoryId}
                         currentPaymentMethod={t.paymentMethod}
@@ -301,7 +326,7 @@ export default async function TransaccionesPage({ searchParams }: { searchParams
                         title={t.kind === "CARD_PAYMENT" ? "¿Eliminar este pago de tarjeta?" : "¿Eliminar este movimiento?"}
                         description={
                           t.kind === "CARD_PAYMENT"
-                            ? "El periodo de la tarjeta vuelve a quedar pendiente y el monto vuelve a la cuenta."
+                            ? "El periodo de la tarjeta vuelve a quedar pendiente, se borra también su pago en soles o en dólares y el monto vuelve a la cuenta."
                             : "Esta acción no se puede deshacer."
                         }
                         onConfirm={deleteTransaction.bind(null, t.id)}

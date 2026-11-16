@@ -1,7 +1,7 @@
 import { Check, Minus, TriangleAlert } from "lucide-react";
 import { OccurrenceDialog } from "@/components/finance/occurrence-dialog";
 import type { CalendarEntry, OccurrenceStatusView } from "@/features/schedule/queries";
-import { formatCurrency } from "@/lib/format";
+import { formatEntryAmount } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type AccountOption = { id: string; name: string };
@@ -17,6 +17,7 @@ export function OccurrenceStatusMark({ status, className }: { status: Occurrence
         status === "SKIPPED" && "bg-muted text-muted-foreground",
         status === "PENDING" && "border-[1.5px] border-dashed border-muted-foreground/50",
         status === "OVERDUE" && "border-[1.5px] border-dashed border-destructive",
+        status === "PARTIAL" && "border-[1.5px] border-expense bg-gradient-to-r from-expense from-50% to-transparent to-50%",
         className
       )}
     >
@@ -42,7 +43,7 @@ export const PREPAYMENT_MARK = { PLANNED: "PENDING", DUE: "OVERDUE", DONE: "PAID
 export function occurrenceAmountClass(status: OccurrenceStatusView) {
   return cn(
     "tabular-nums",
-    status === "PAID" && "text-expense",
+    (status === "PAID" || status === "PARTIAL") && "text-expense",
     status === "OVERDUE" && "text-destructive",
     status === "SKIPPED" && "text-muted-foreground line-through"
   );
@@ -72,7 +73,7 @@ export function OccurrenceRow({
           </div>
           {entry.cycleChange && <CycleChangeMark />}
           <span className={cn("shrink-0 text-sm font-semibold", occurrenceAmountClass(entry.status))}>
-            {formatCurrency(entry.amount)}
+            {formatEntryAmount(entry)}
           </span>
         </button>
       </OccurrenceDialog>

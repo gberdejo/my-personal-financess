@@ -17,6 +17,12 @@ enum TransactionKind {
 
 // Cómo se pagó un gasto. Es informativo: el saldo lo mueve la cuenta
 // (ej. un Yape o una compra con tarjeta que sale de la cuenta sueldo).
+// Solo las tarjetas de crédito tienen consumos y pagos en dólares.
+enum Currency {
+  PEN
+  USD
+}
+
 enum PaymentMethod {
   CREDIT_CARD
   DEBIT_CARD
@@ -46,6 +52,8 @@ enum ScheduleFrequency {
 enum OccurrenceStatus {
   PAID
   SKIPPED
+  // Solo tarjeta: una sola de las dos partes (soles o dólares) está resuelta.
+  PARTIAL
 }
 
 enum BudgetTemplate {
@@ -115,7 +123,15 @@ model Transaction {
   accountId     String?
   categoryId    String
   kind          TransactionKind
+  // Siempre en soles. En una transacción USD es `foreignAmount` × `exchangeRate`
+  // (o un estimado con el último tipo de cambio mientras no se paga).
   amount        Decimal         @db.Decimal(12, 2)
+  // USD solo en un consumo con tarjeta (CREDIT_CARD, sin cuenta) o en un CARD_PAYMENT.
+  currency      Currency        @default(PEN)
+  // Monto original en dólares (solo con currency USD).
+  foreignAmount Decimal?        @db.Decimal(12, 2)
+  // Tipo de cambio del pago. Null en un consumo USD pendiente (su `amount` es estimado).
+  exchangeRate  Decimal?        @db.Decimal(10, 4)
   // Para qué fue (ej. "Almuerzo"). Sale de sugerencias por categoría y agrupa
   // los gastos recurrentes. `description` queda como nota en texto libre.
   reason        String?
@@ -132,14 +148,16 @@ model Transaction {
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
-  account             Account?             @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  category            Category             @relation(fields: [categoryId], references: [id])
-  card                ScheduledPayment?    @relation("TransactionCard", fields: [cardId], references: [id], onDelete: SetNull)
-  budgetItem          BudgetItem?
-  scheduledOccurrence ScheduledOccurrence?
-  loanPrepayment      LoanPrepayment?
+  account                Account?             @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  category               Category             @relation(fields: [categoryId], references: [id])
+  card                   ScheduledPayment?    @relation("TransactionCard", fields: [cardId], references: [id], onDelete: SetNull)
+  budgetItem             BudgetItem?
+  scheduledOccurrence    ScheduledOccurrence? @relation("OccurrencePayment")
+  // Pago en dólares de un vencimiento de tarjeta (el pago en soles es `scheduledOccurrence`).
+  usdScheduledOccurrence ScheduledOccurrence? @relation("OccurrenceUsdPayment")
+  loanPrepayment         LoanPrepayment?
   // Movimientos importados (Yape, estados de cuenta) que la crearon o se vincularon a ella.
-  importedMovements   ImportedMovement[]
+  importedMovements      ImportedMovement[]
 
   @@index([userId, date])
   @@index([accountId])
@@ -219,17 +237,17 @@ model ScheduledPayment {
   createdAt     DateTime             @default(now())
   updatedAt     DateTime             @updatedAt
 
-  account            Account?              @relation(fields: [accountId], references: [id], onDelete: SetNull)
-  category           Category?             @relation(fields: [categoryId], references: [id])
-  occurrences        ScheduledOccurrence[]
-  statements         CardStatement[]
-  billingPeriods     CardBillingPeriod[]
-  loan               Loan?
-  installments       LoanInstallment[]
-  prepayments        LoanPrepayment[]
+  account          Account?              @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  category         Category?             @relation(fields: [categoryId], references: [id])
+  occurrences      ScheduledOccurrence[]
+  statements       CardStatement[]
+  billingPeriods   CardBillingPeriod[]
+  loan             Loan?
+  installments     LoanInstallment[]
+  prepayments      LoanPrepayment[]
   // Solo tarjeta: gastos pagados con ella e importaciones que la usan por defecto.
-  cardTransactions   Transaction[]         @relation("TransactionCard")
-  cardImports        TransactionImport[]   @relation("ImportCard")
+  cardTransactions Transaction[]         @relation("TransactionCard")
+  cardImports      TransactionImport[]   @relation("ImportCard")
 
   @@index([userId])
 }
@@ -237,21 +255,36 @@ model ScheduledPayment {
 // Una cuota ya resuelta (pagada u omitida). Si se borra el gasto generado, la
 // cuota se borra con él y vuelve a quedar pendiente.
 model ScheduledOccurrence {
-  id                 String           @id @default(cuid())
-  scheduledPaymentId String
+  id                    String           @id @default(cuid())
+  scheduledPaymentId    String
   // Fecha de vencimiento de la regla (no la fecha en que se pagó).
-  dueDate            DateTime
-  status             OccurrenceStatus
+  dueDate               DateTime
+  status                OccurrenceStatus
   // Monto pagado. En BILL coincide con el de la Transaction.
-  amount             Decimal?         @db.Decimal(12, 2)
+  amount                Decimal?         @db.Decimal(12, 2)
   // Solo tarjeta: gastos con tarjeta del ciclo al marcarla como pagada. Si
   // después cambian (se edita, agrega o borra un gasto), se avisa.
-  estimatedAtPayment Decimal?         @db.Decimal(12, 2)
-  transactionId      String?          @unique
-  createdAt          DateTime         @default(now())
+  estimatedAtPayment    Decimal?         @db.Decimal(12, 2)
+  // Solo tarjeta: consumos en dólares del ciclo al pagar (para avisar si cambian).
+  estimatedUsdAtPayment Decimal?         @db.Decimal(12, 2)
+  // Solo tarjeta: parte pagada en dólares y tipo de cambio usado. `amount` es el
+  // total en soles que salió de la cuenta (las dos partes).
+  amountUsd             Decimal?         @db.Decimal(12, 2)
+  exchangeRate          Decimal?         @db.Decimal(10, 4)
+  // Pago en soles (en una tarjeta, solo la parte en soles).
+  transactionId         String?          @unique
+  // Solo tarjeta: pago en dólares.
+  usdTransactionId      String?          @unique
+  // Solo tarjeta: cada parte está pagada, marcada o no tenía deuda.
+  penSettled            Boolean          @default(false)
+  usdSettled            Boolean          @default(false)
+  // Solo tarjeta: soles de la parte en soles. `amount` = penAmount + dólares en soles.
+  penAmount             Decimal?         @db.Decimal(12, 2)
+  createdAt             DateTime         @default(now())
 
   scheduledPayment ScheduledPayment @relation(fields: [scheduledPaymentId], references: [id], onDelete: Cascade)
-  transaction      Transaction?     @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  transaction      Transaction?     @relation("OccurrencePayment", fields: [transactionId], references: [id], onDelete: Cascade)
+  usdTransaction   Transaction?     @relation("OccurrenceUsdPayment", fields: [usdTransactionId], references: [id], onDelete: Cascade)
 
   @@unique([scheduledPaymentId, dueDate])
 }
@@ -262,7 +295,10 @@ model CardStatement {
   id                 String   @id @default(cuid())
   scheduledPaymentId String
   dueDate            DateTime
+  // Deuda en soles.
   amount             Decimal  @db.Decimal(12, 2)
+  // Deuda en dólares (opcional).
+  amountUsd          Decimal? @db.Decimal(12, 2)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 

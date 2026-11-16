@@ -8,7 +8,7 @@ import { OccurrenceDialog } from "@/components/finance/occurrence-dialog";
 import { getAccounts } from "@/features/accounts/queries";
 import { getCalendarEntry } from "@/features/schedule/queries";
 import { daysUntil, monthKey } from "@/lib/date";
-import { formatCountdown, formatCurrency, formatDate, formatTransactionDate } from "@/lib/format";
+import { formatCountdown, formatDate, formatMixed, formatTransactionDate } from "@/lib/format";
 
 export default async function PagoTarjetaPage({ params }: { params: Promise<{ id: string; fecha: string }> }) {
   const { id, fecha } = await params;
@@ -17,6 +17,7 @@ export default async function PagoTarjetaPage({ params }: { params: Promise<{ id
 
   const accounts = await getAccounts();
   const debt = entry.statementAmount ?? entry.estimated;
+  const debtUsd = entry.statementAmountUsd ?? entry.estimatedUsd;
 
   // Vuelve a la tarjeta, en el ciclo de este vencimiento (el mes del cierre).
   const backHref = entry.cycle
@@ -67,17 +68,19 @@ export default async function PagoTarjetaPage({ params }: { params: Promise<{ id
             scheduledPaymentId={entry.scheduledPaymentId}
             dueDateValue={entry.dueDateValue}
             statementAmount={entry.statementAmount}
+            statementAmountUsd={entry.statementAmountUsd}
             estimated={entry.estimated}
+            estimatedUsd={entry.estimatedUsd}
           />
 
           <div className="grid grid-cols-2 gap-4">
             <div className="flex flex-col gap-0.5">
               <span className="text-xs text-muted-foreground">Deuda</span>
-              <span className="text-lg font-semibold tabular-nums md:text-xl">{formatCurrency(debt)}</span>
+              <span className="text-lg font-semibold tabular-nums md:text-xl">{formatMixed(debt, debtUsd)}</span>
             </div>
             <div className="flex flex-col gap-0.5">
               <span className="text-xs text-muted-foreground">Estimado de consumos</span>
-              <span className="text-lg font-semibold tabular-nums md:text-xl">{formatCurrency(entry.estimated)}</span>
+              <span className="text-lg font-semibold tabular-nums md:text-xl">{formatMixed(entry.estimated, entry.estimatedUsd)}</span>
             </div>
           </div>
         </div>

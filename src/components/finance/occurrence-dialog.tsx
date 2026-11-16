@@ -16,6 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useLastExchangeRate } from "@/components/finance/credit-cards-context";
 import { PaymentMethodSelect } from "@/components/finance/payment-method-select";
 import {
   acknowledgeCardCycleChange,
@@ -23,15 +24,24 @@ import {
   skipOccurrence,
   undoOccurrence,
 } from "@/features/schedule/actions";
-import type { CalendarEntry } from "@/features/schedule/queries";
+import { payCardPart, undoCardPart } from "@/features/cards/payments";
+import type { CalendarEntry, PartView } from "@/features/schedule/queries";
 import { shiftDay, todayInLima, toUTCDateInputValue } from "@/lib/date";
-import { formatCurrency, formatDate, formatTransactionDate } from "@/lib/format";
+import {
+  formatCurrency,
+  formatDate,
+  formatEntryAmount,
+  formatMixed,
+  formatTransactionDate,
+  formatUsd,
+} from "@/lib/format";
 
 type AccountOption = { id: string; name: string };
 
 const STATUS_LABELS: Record<CalendarEntry["status"], string> = {
   PENDING: "Pendiente",
   OVERDUE: "Vencido",
+  PARTIAL: "Pagado en parte",
   PAID: "Pagado",
   SKIPPED: "Omitido",
 };
@@ -47,8 +57,10 @@ export function OccurrenceDialog({
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const today = toUTCDateInputValue(todayInLima());
+  const lastRate = useLastExchangeRate();
   const [accountId, setAccountId] = useState(entry.accountId ?? "");
-  // Ya está en Transacciones: solo se marca, sin crear otro gasto.
+  // Ya está en Transacciones: solo se marca, sin crear otro gasto (servicios y préstamos).
   const [markOnly, setMarkOnly] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [state, formAction, pending] = useActionState(
@@ -70,6 +82,7 @@ export function OccurrenceDialog({
     if (next) {
       setError(null);
       setMarkOnly(false);
+      setAccountId(entry.accountId ?? "");
     }
   }
 
@@ -95,7 +108,10 @@ export function OccurrenceDialog({
   }
 
   const isCard = entry.type === "CREDIT_CARD";
-  const resolved = entry.status === "PAID" || entry.status === "SKIPPED";
+  // Tarjeta: se resuelve por partes; solo "omitida" usa el texto de resuelto.
+  const resolved = isCard ? entry.status === "SKIPPED" : entry.status === "PAID" || entry.status === "SKIPPED";
+  const parts = entry.parts;
+  const anySettled = !!parts && (parts.pen.settled || parts.usd.settled);
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -121,10 +137,10 @@ export function OccurrenceDialog({
             )}
           </div>
           <div className="flex shrink-0 flex-col items-end">
-            <span className="text-lg font-semibold text-expense tabular-nums">{formatCurrency(entry.amount)}</span>
-            {entry.status === "PAID" && entry.amount !== entry.estimated && (
+            <span className="text-lg font-semibold text-expense tabular-nums">{formatEntryAmount(entry)}</span>
+            {entry.status === "PAID" && (entry.amountPen !== entry.estimated || entry.amountUsd !== entry.estimatedUsd) && (
               <span className="text-xs text-muted-foreground tabular-nums">
-                estimado {formatCurrency(entry.estimated)}
+                estimado {formatMixed(entry.estimated, entry.estimatedUsd)}
               </span>
             )}
           </div>
@@ -167,11 +183,9 @@ export function OccurrenceDialog({
             <p className="text-sm text-muted-foreground">
               {entry.status === "SKIPPED"
                 ? "Esta cuota se omitió. Al deshacer vuelve a quedar pendiente."
-                : entry.transactionId
-                  ? isCard
-                    ? "Se registró el pago de la tarjeta en Transacciones y sus consumos quedaron pagados. Al deshacer se borra ese pago (el monto vuelve a la cuenta) y el periodo vuelve a quedar pendiente."
-                    : "Se registró como gasto en Transacciones. Al deshacer se borra ese gasto y la cuota vuelve a quedar pendiente."
-                  : "Marcada como pagada. Al deshacer vuelve a quedar pendiente."}
+                  : entry.transactionId
+                    ? "Se registró como gasto en Transacciones. Al deshacer se borra ese gasto y la cuota vuelve a quedar pendiente."
+                    : "Marcada como pagada. Al deshacer vuelve a quedar pendiente."}
             </p>
             <DialogFooter>
               <Button variant="outline" onClick={undo} disabled={otherPending}>
@@ -179,10 +193,30 @@ export function OccurrenceDialog({
               </Button>
             </DialogFooter>
           </div>
+        ) : isCard && parts ? (
+          <div className="flex flex-col gap-4">
+            {entry.cycleChange && (
+              <CycleChangeNotice change={entry.cycleChange} pending={otherPending} onAcknowledge={acknowledge} />
+            )}
+            <CardPartSection entry={entry} part="PEN" view={parts.pen} accounts={accounts} defaultRate={null} />
+            <CardPartSection entry={entry} part="USD" view={parts.usd} accounts={accounts} defaultRate={lastRate} />
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            <DialogFooter className="gap-2">
+              {anySettled ? (
+                <Button variant="outline" onClick={undo} disabled={otherPending}>
+                  {otherPending ? "Deshaciendo…" : "Deshacer todo"}
+                </Button>
+              ) : (
+                <Button variant="ghost" onClick={skip} disabled={otherPending}>
+                  Omitir esta vez
+                </Button>
+              )}
+            </DialogFooter>
+          </div>
         ) : (
           <form action={formAction} className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
-              <Label htmlFor={`pay-amount-${entry.key}`}>{isCard ? "Monto pagado (S/)" : "Monto real (S/)"}</Label>
+              <Label htmlFor={`pay-amount-${entry.key}`}>Monto real (S/)</Label>
               <Input
                 id={`pay-amount-${entry.key}`}
                 name="amount"
@@ -190,14 +224,9 @@ export function OccurrenceDialog({
                 step="0.01"
                 min="0.01"
                 inputMode="decimal"
-                defaultValue={entry.amount > 0 ? entry.amount : undefined}
+                defaultValue={entry.amount > 0 ? entry.amount.toFixed(2) : undefined}
                 required
               />
-              {isCard && entry.cycle?.open && (
-                <p className="text-xs text-muted-foreground">
-                  El ciclo todavía no cerró: el monto puede subir con nuevos consumos.
-                </p>
-              )}
             </div>
 
             <label className="flex items-center gap-2 text-sm">
@@ -208,14 +237,12 @@ export function OccurrenceDialog({
                 onChange={(e) => setMarkOnly(e.target.checked)}
                 className="size-4 accent-primary"
               />
-              {isCard ? "Ya está descontado de mi cuenta: solo marcar como pagada" : "Ya está en Transacciones: solo marcar como pagada"}
+              Ya está en Transacciones: solo marcar como pagada
             </label>
 
             {markOnly ? (
               <p className="text-xs text-muted-foreground">
-                {isCard
-                  ? "No se crea el pago. Usalo para periodos cuyos gastos ya restaron de tu cuenta uno por uno."
-                  : "No se crea otro gasto. Usalo para cuotas que pagaste antes de cargarlas acá."}
+                No se crea otro gasto. Usalo para cuotas que pagaste antes de cargarlas acá.
               </p>
             ) : (
               <>
@@ -237,23 +264,10 @@ export function OccurrenceDialog({
                   </div>
                   <div className="flex flex-col gap-2">
                     <Label htmlFor={`pay-date-${entry.key}`}>Fecha de pago</Label>
-                    <Input
-                      id={`pay-date-${entry.key}`}
-                      name="date"
-                      type="date"
-                      defaultValue={toUTCDateInputValue(todayInLima())}
-                      required
-                    />
+                    <Input id={`pay-date-${entry.key}`} name="date" type="date" defaultValue={today} required />
                   </div>
                 </div>
-                {isCard ? (
-                  <p className="text-xs text-muted-foreground">
-                    Se registra un solo pago de tarjeta que sale de esta cuenta, y los consumos del periodo quedan
-                    pagados. No se cuenta otra vez como gasto: los gastos son los consumos.
-                  </p>
-                ) : (
-                  <PaymentMethodSelect id={`pay-method-${entry.key}`} defaultValue={entry.paymentMethod} />
-                )}
+                <PaymentMethodSelect id={`pay-method-${entry.key}`} defaultValue={entry.paymentMethod} />
               </>
             )}
 
@@ -263,17 +277,173 @@ export function OccurrenceDialog({
               <Button type="button" variant="ghost" onClick={skip} disabled={otherPending || pending}>
                 Omitir esta vez
               </Button>
-              <Button
-                type="submit"
-                disabled={pending || otherPending || (!markOnly && accounts.length === 0)}
-              >
-                {pending ? "Registrando…" : markOnly ? "Marcar como pagada" : isCard ? "Pagar tarjeta" : "Registrar pago"}
+              <Button type="submit" disabled={pending || otherPending || (!markOnly && accounts.length === 0)}>
+                {pending ? "Registrando…" : markOnly ? "Marcar como pagada" : "Registrar pago"}
               </Button>
             </DialogFooter>
           </form>
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+// Un apartado (soles o dólares) del vencimiento de una tarjeta: se paga, se marca
+// o se deshace sin tocar el otro.
+function CardPartSection({
+  entry,
+  part,
+  view,
+  accounts,
+  defaultRate,
+}: {
+  entry: CalendarEntry;
+  part: "PEN" | "USD";
+  view: PartView;
+  accounts: AccountOption[];
+  defaultRate: number | null;
+}) {
+  const isUsd = part === "USD";
+  const money = isUsd ? formatUsd : formatCurrency;
+  const title = isUsd ? "Dólares" : "Soles";
+  const today = toUTCDateInputValue(todayInLima());
+  const [expanded, setExpanded] = useState(false);
+  const [markOnly, setMarkOnly] = useState(false);
+  const [accountId, setAccountId] = useState(entry.accountId ?? "");
+  const [state, formAction, pending] = useActionState(
+    payCardPart.bind(null, entry.scheduledPaymentId, entry.dueDateValue, part),
+    null
+  );
+  const [undoing, startTransition] = useTransition();
+
+  function undo() {
+    startTransition(async () => {
+      await undoCardPart(entry.scheduledPaymentId, entry.dueDateValue, part);
+      setExpanded(false);
+    });
+  }
+
+  let status: string;
+  if (view.settled) {
+    if (view.amount <= 0) status = "Sin deuda";
+    else if (view.markOnly) status = `Marcado como pagado (${money(view.amount)})`;
+    else {
+      status = `Pagado ${money(view.amount)}`;
+      if (view.paidOn) status += ` el ${formatTransactionDate(view.paidOn)}`;
+      if (view.accountName) status += ` desde ${view.accountName}`;
+    }
+  } else {
+    status = view.pending > 0 ? `Pendiente ${money(view.pending)}` : "Sin deuda";
+  }
+
+  const id = `${entry.key}-${part}`;
+  return (
+    <section className="flex flex-col gap-3 rounded-lg border p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium">{title}</p>
+          <p className="text-xs text-muted-foreground tabular-nums">{status}</p>
+        </div>
+        {view.settled ? (
+          <Button type="button" variant="outline" size="sm" onClick={undo} disabled={undoing}>
+            {undoing ? "Deshaciendo…" : "Deshacer"}
+          </Button>
+        ) : (
+          !expanded && (
+            <Button type="button" size="sm" onClick={() => setExpanded(true)}>
+              Pagar {title.toLowerCase()}
+            </Button>
+          )
+        )}
+      </div>
+
+      {!view.settled && expanded && (
+        <form action={formAction} className="flex flex-col gap-3">
+          <div className={isUsd ? "grid grid-cols-2 gap-4" : "flex flex-col gap-2"}>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor={`pay-amount-${id}`}>{isUsd ? "Monto en US$" : "Monto en S/"}</Label>
+              <Input
+                id={`pay-amount-${id}`}
+                name="amount"
+                type="number"
+                step="0.01"
+                min="0.01"
+                inputMode="decimal"
+                defaultValue={view.pending > 0 ? view.pending.toFixed(2) : undefined}
+                required
+              />
+            </div>
+            {isUsd && (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor={`pay-rate-${id}`}>Tipo de cambio</Label>
+                <Input
+                  id={`pay-rate-${id}`}
+                  name="exchangeRate"
+                  type="number"
+                  step="0.0001"
+                  min="0.0001"
+                  inputMode="decimal"
+                  defaultValue={defaultRate !== null ? String(defaultRate) : undefined}
+                  required
+                />
+              </div>
+            )}
+          </div>
+          {!isUsd && entry.cycle?.open && (
+            <p className="text-xs text-muted-foreground">
+              El ciclo todavía no cerró: el monto puede subir con nuevos consumos.
+            </p>
+          )}
+          {isUsd && (
+            <p className="text-xs text-muted-foreground">
+              El tipo de cambio es obligatorio, también con “solo marcar”: los consumos en dólares del ciclo quedan con él.
+            </p>
+          )}
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              name="markOnly"
+              checked={markOnly}
+              onChange={(event) => setMarkOnly(event.target.checked)}
+              className="size-4 accent-primary"
+            />
+            Solo marcar como pagado (ya está en Transacciones)
+          </label>
+          {!markOnly && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor={`pay-account-${id}`}>Cuenta</Label>
+                <Select name="accountId" value={accountId} onValueChange={setAccountId} required>
+                  <SelectTrigger id={`pay-account-${id}`} className="w-full">
+                    <SelectValue placeholder="Elegí una cuenta" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accounts.map((account) => (
+                      <SelectItem key={account.id} value={account.id}>
+                        {account.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor={`pay-date-${id}`}>Fecha de pago</Label>
+                <Input id={`pay-date-${id}`} name="date" type="date" defaultValue={today} required />
+              </div>
+            </div>
+          )}
+          {state?.error && <p className="text-sm text-destructive">{state.error}</p>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" size="sm" onClick={() => setExpanded(false)} disabled={pending}>
+              Cancelar
+            </Button>
+            <Button type="submit" size="sm" disabled={pending || (!markOnly && accounts.length === 0)}>
+              {pending ? "Registrando…" : markOnly ? "Marcar como pagado" : "Registrar"}
+            </Button>
+          </div>
+        </form>
+      )}
+    </section>
   );
 }
 
@@ -288,7 +458,14 @@ function CycleChangeNotice({
   pending: boolean;
   onAcknowledge: () => void;
 }) {
-  const diff = change.after - change.before;
+  // Qué cambió en cada moneda (con signo).
+  const diffs = [
+    { value: change.after - change.before, format: formatCurrency },
+    { value: change.afterUsd - change.beforeUsd, format: formatUsd },
+  ]
+    .filter((d) => Math.abs(d.value) >= 0.005)
+    .map((d) => `${d.value > 0 ? "+" : "−"}${d.format(Math.abs(d.value))}`)
+    .join(" ");
   return (
     <div className="flex flex-col gap-2 rounded-md bg-amber-500/10 px-3 py-2.5 text-sm">
       <p className="flex items-center gap-1.5 font-medium text-amber-700 dark:text-amber-400">
@@ -296,9 +473,8 @@ function CycleChangeNotice({
         Los gastos del ciclo cambiaron después de marcarla
       </p>
       <p className="text-xs text-muted-foreground tabular-nums">
-        Al marcarla sumaban {formatCurrency(change.before)}; ahora suman {formatCurrency(change.after)} (
-        {diff > 0 ? "+" : "−"}
-        {formatCurrency(Math.abs(diff))}). Revisá si lo que pagaste cubre la deuda; si no, deshacé y volvé a marcarla
+        Al marcarla sumaban {formatMixed(change.before, change.beforeUsd)}; ahora suman{" "}
+        {formatMixed(change.after, change.afterUsd)} ({diffs}). Revisá si lo que pagaste cubre la deuda; si no, deshacé y volvé a marcarla
         con el monto correcto.
       </p>
       <Button variant="outline" size="sm" className="self-end" onClick={onAcknowledge} disabled={pending}>

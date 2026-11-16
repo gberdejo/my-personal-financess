@@ -5,7 +5,7 @@ import { counterpartyKey, isImportSource, type ImportSource } from "@/lib/import
 import { normalizeReason } from "@/lib/reason";
 import { amountLockInfo, type AmountLock } from "@/lib/transaction-lock";
 import { getReasonSuggestions } from "@/features/categories/queries";
-import type { PaymentMethod, TransactionKind } from "@/generated/prisma/client";
+import type { Currency, PaymentMethod, TransactionKind } from "@/generated/prisma/client";
 import type { MovementKind } from "@/lib/labels";
 
 // PENDING: cargado, sin transacción. APPLIED: tiene transacción. DISCARDED: no se va a aplicar.
@@ -98,6 +98,10 @@ export type ImportedMovementRow = {
     date: Date;
     // Puede diferir del monto del archivo si se editó la transacción.
     amount: number;
+    // Un consumo en dólares trae su monto en US$ y, si ya se pagó, su tipo de cambio.
+    currency: Currency;
+    foreignAmount: number | null;
+    exchangeRate: number | null;
     categoryId: string;
     categoryName: string;
     accountName: string | null;
@@ -186,6 +190,9 @@ export async function getImport(importId: string): Promise<ImportDetail | null> 
               kind: true,
               date: true,
               amount: true,
+              currency: true,
+              foreignAmount: true,
+              exchangeRate: true,
               categoryId: true,
               reason: true,
               description: true,
@@ -271,6 +278,9 @@ export async function getImport(importId: string): Promise<ImportDetail | null> 
             kind: m.transaction.kind as MovementKind,
             date: m.transaction.date,
             amount: Number(m.transaction.amount),
+            currency: m.transaction.currency,
+            foreignAmount: m.transaction.foreignAmount === null ? null : Number(m.transaction.foreignAmount),
+            exchangeRate: m.transaction.exchangeRate === null ? null : Number(m.transaction.exchangeRate),
             categoryId: m.transaction.categoryId,
             categoryName: m.transaction.category.name,
             accountName: m.transaction.account?.name ?? null,

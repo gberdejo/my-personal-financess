@@ -20,6 +20,11 @@ async function findCardDue(userId: string, scheduledPaymentId: string, dueDateVa
   return { payment, dueDate };
 }
 
+function readPositive(raw: string) {
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? Math.round(value * 100) / 100 : null;
+}
+
 // Deuda del estado de cuenta de un vencimiento. Vacío = se borra y el calendario
 // vuelve al estimado.
 export async function saveCardStatement(
@@ -34,18 +39,21 @@ export async function saveCardStatement(
   if (!due) return { error: "Vencimiento inválido." };
 
   const raw = String(formData.get("amount") ?? "").trim();
+  const rawUsd = String(formData.get("amountUsd") ?? "").trim();
   const where = { scheduledPaymentId_dueDate: { scheduledPaymentId: due.payment.id, dueDate: due.dueDate } };
 
-  if (!raw) {
+  if (!raw && !rawUsd) {
     await prisma.cardStatement.deleteMany({ where: { scheduledPaymentId: due.payment.id, dueDate: due.dueDate } });
   } else {
-    const value = Number(raw);
-    const amount = Number.isFinite(value) && value > 0 ? Math.round(value * 100) / 100 : null;
-    if (!amount) return { error: "La deuda debe ser mayor a 0." };
+    // Sin deuda en soles (solo en dólares) queda en 0.
+    const amount = raw ? readPositive(raw) : 0;
+    const amountUsd = rawUsd ? readPositive(rawUsd) : null;
+    if (amount === null) return { error: "La deuda debe ser mayor a 0." };
+    if (rawUsd && amountUsd === null) return { error: "La deuda en dólares debe ser mayor a 0." };
     await prisma.cardStatement.upsert({
       where,
-      create: { scheduledPaymentId: due.payment.id, dueDate: due.dueDate, amount },
-      update: { amount },
+      create: { scheduledPaymentId: due.payment.id, dueDate: due.dueDate, amount, amountUsd },
+      update: { amount, amountUsd },
     });
   }
 

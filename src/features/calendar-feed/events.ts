@@ -1,13 +1,13 @@
 import { prepaymentsForUser } from "@/features/loans/queries";
 import { getEntriesForUser } from "@/features/schedule/queries";
 import { shiftDay, todayInLima, toUTCDateInputValue } from "@/lib/date";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatEntryAmount } from "@/lib/format";
 import type { IcalEvent } from "@/lib/ical";
 
 const PAST_DAYS = 90;
 const FUTURE_DAYS = 400;
 
-const STATUS_LABELS = { PENDING: "Pendiente", OVERDUE: "Vencido", PAID: "Pagado", SKIPPED: "Omitido" } as const;
+const STATUS_LABELS = { PENDING: "Pendiente", OVERDUE: "Vencido", PARTIAL: "Pagado en parte", PAID: "Pagado", SKIPPED: "Omitido" } as const;
 
 // Eventos del feed de un usuario: vencimientos, cierres de tarjeta y prepagos.
 // Cada evento es de día completo; la alarma solo va en lo que falta pagar.
@@ -24,7 +24,7 @@ export async function buildFeedEvents(userId: string, baseUrl: string): Promise<
   const events: IcalEvent[] = [];
 
   for (const entry of entries) {
-    const money = formatCurrency(entry.amount);
+    const money = formatEntryAmount(entry);
     const summary =
       entry.status === "PAID"
         ? `✓ ${entry.name} · ${money}`
@@ -52,7 +52,7 @@ export async function buildFeedEvents(userId: string, baseUrl: string): Promise<
       summary,
       description,
       url,
-      alarm: entry.status === "PENDING" || entry.status === "OVERDUE",
+      alarm: entry.status === "PENDING" || entry.status === "OVERDUE" || entry.status === "PARTIAL",
     });
 
     if (entry.type === "CREDIT_CARD" && entry.cycle) {

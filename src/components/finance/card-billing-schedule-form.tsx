@@ -45,6 +45,7 @@ type RowValues = { closing: string; due: string; edited: boolean };
 const STATUS_TEXT: Record<OccurrenceStatusView, string> = {
   PENDING: "Pendiente",
   OVERDUE: "Vencida",
+  PARTIAL: "Pagada en parte",
   PAID: "Pagada",
   SKIPPED: "Omitida",
 };

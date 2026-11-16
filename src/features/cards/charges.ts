@@ -2,7 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { billingCycle, billingIndexOf, billingMonthKey, periodsByMonth, type BillingPeriod } from "@/lib/schedule";
 
 // Estado de un consumo con tarjeta: no se guarda. Está pagado si el vencimiento
-// del ciclo en que cayó (ScheduledOccurrence) está marcado como pagado.
+// del ciclo en que cayó (ScheduledOccurrence) está pagado, o pagado en parte con
+// resuelta la moneda del consumo.
 export type ChargeStatus = {
   status: "PENDING" | "PAID";
   dueDate: Date;
@@ -11,7 +12,7 @@ export type ChargeStatus = {
 };
 
 export async function chargeStatuses(
-  charges: { id: string; date: Date; cardId: string | null }[]
+  charges: { id: string; date: Date; cardId: string | null; currency: "PEN" | "USD" }[]
 ): Promise<Map<string, ChargeStatus>> {
   const result = new Map<string, ChargeStatus>();
   const cardIds = [...new Set(charges.flatMap((c) => (c.cardId ? [c.cardId] : [])))];
@@ -61,15 +62,21 @@ export async function chargeStatuses(
   const dueDates = [...new Set([...cycles.values()].map((c) => c.dueDate.getTime()))].map((t) => new Date(t));
   const paid = dueDates.length
     ? await prisma.scheduledOccurrence.findMany({
-        where: { scheduledPaymentId: { in: cardIds }, dueDate: { in: dueDates }, status: "PAID" },
-        select: { scheduledPaymentId: true, dueDate: true },
+        where: { scheduledPaymentId: { in: cardIds }, dueDate: { in: dueDates }, status: { in: ["PAID", "PARTIAL"] } },
+        select: { scheduledPaymentId: true, dueDate: true, status: true, penSettled: true, usdSettled: true },
       })
     : [];
-  const paidKeys = new Set(paid.map((o) => `${o.scheduledPaymentId}:${o.dueDate.getTime()}`));
+  const occurrences = new Map(paid.map((o) => [`${o.scheduledPaymentId}:${o.dueDate.getTime()}`, o]));
+  const currencyOf = new Map(charges.map((c) => [c.id, c.currency]));
 
   for (const [chargeId, cycle] of cycles) {
+    const occurrence = occurrences.get(`${cycle.cardId}:${cycle.dueDate.getTime()}`);
+    const settled =
+      occurrence?.status === "PAID" ||
+      (occurrence?.status === "PARTIAL" &&
+        (currencyOf.get(chargeId) === "USD" ? occurrence.usdSettled : occurrence.penSettled));
     result.set(chargeId, {
-      status: paidKeys.has(`${cycle.cardId}:${cycle.dueDate.getTime()}`) ? "PAID" : "PENDING",
+      status: settled ? "PAID" : "PENDING",
       dueDate: cycle.dueDate,
       cycleKey: cycle.cycleKey,
     });

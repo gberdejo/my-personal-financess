@@ -28,6 +28,7 @@ import { ReasonField } from "@/components/finance/reason-field";
 import { useCreateCategory } from "@/components/finance/use-create-category";
 import { PaymentMethodSelect } from "@/components/finance/payment-method-select";
 import { ReceiptLinksField } from "@/components/finance/receipt-links-field";
+import { ChargeCurrencyField, type ChargeCurrency } from "@/components/finance/charge-currency-field";
 import { createTransaction } from "@/features/transactions/actions";
 import type { ReasonSuggestion } from "@/features/categories/queries";
 import type { MovementKind } from "@/lib/labels";
@@ -68,6 +69,9 @@ export function TransactionFormDialog({
   const [method, setMethod] = useState<PaymentMethod | null>(null);
   // Remonta el método de pago al limpiar el formulario.
   const [methodKey, setMethodKey] = useState(0);
+  // Un consumo con tarjeta puede ser en dólares; el monto se controla para estimar los soles.
+  const [currency, setCurrency] = useState<ChargeCurrency>("PEN");
+  const [amount, setAmount] = useState("");
 
   const [state, formAction, pending] = useActionState(createTransaction, null);
   const {
@@ -90,6 +94,8 @@ export function TransactionFormDialog({
       setKind("EXPENSE");
       setMethod(null);
       setMethodKey((key) => key + 1);
+      setCurrency("PEN");
+      setAmount("");
       setCategoryId("");
       setCategoryError(null);
     }
@@ -104,6 +110,7 @@ export function TransactionFormDialog({
 
   const currentCategories = categories[kind];
   const isCharge = kind === "EXPENSE" && method === "CREDIT_CARD";
+  const isUsd = isCharge && currency === "USD";
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -138,6 +145,14 @@ export function TransactionFormDialog({
           <div className={kind === "EXPENSE" && !isCharge ? "grid grid-cols-2 gap-4" : "flex flex-col gap-4"}>
             {kind === "EXPENSE" && (
               <PaymentMethodSelect key={methodKey} id="tx-payment-method" onMethodChange={setMethod} />
+            )}
+            {isCharge && (
+              <ChargeCurrencyField
+                id="tx-currency"
+                currency={currency}
+                onCurrencyChange={setCurrency}
+                amount={amount}
+              />
             )}
             {!isCharge && (
               <div className="flex flex-col gap-2">
@@ -189,7 +204,7 @@ export function TransactionFormDialog({
 
           <div className="grid grid-cols-2 gap-4">
             <div className="flex flex-col gap-2">
-              <Label htmlFor="tx-amount">Monto (S/)</Label>
+              <Label htmlFor="tx-amount">{isUsd ? "Monto (US$)" : "Monto (S/)"}</Label>
               <Input
                 id="tx-amount"
                 name="amount"
@@ -197,6 +212,8 @@ export function TransactionFormDialog({
                 step="0.01"
                 min="0.01"
                 inputMode="decimal"
+                value={amount}
+                onChange={(event) => setAmount(event.target.value)}
                 required
               />
             </div>

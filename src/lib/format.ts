@@ -7,6 +7,38 @@ export function formatCurrency(amount: number) {
   return currencyFormatter.format(amount);
 }
 
+const usdFormatter = new Intl.NumberFormat("es-PE", {
+  style: "currency",
+  currency: "USD",
+  currencyDisplay: "code",
+});
+
+// Monto en soles y dólares: "S/ 300.00 + US$ 50.00" (solo la moneda que tenga monto).
+export function formatMixed(pen: number, usd: number) {
+  if (usd <= 0) return formatCurrency(pen);
+  if (pen <= 0) return formatUsd(usd);
+  return `${formatCurrency(pen)} + ${formatUsd(usd)}`;
+}
+
+// Monto de un vencimiento de tarjeta: "S/ 300.00 + US$ 50.00" y, si ya se pagó
+// con dólares, "… a TC 3.80".
+export function formatEntryAmount(entry: { amountPen: number; amountUsd: number; exchangeRate: number | null }) {
+  const text = formatMixed(entry.amountPen, entry.amountUsd);
+  return entry.amountUsd > 0 && entry.exchangeRate !== null ? `${text} a TC ${formatRate(entry.exchangeRate)}` : text;
+}
+
+const rateFormatter = new Intl.NumberFormat("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+
+// Tipo de cambio: "3.80", "3.7525".
+export function formatRate(rate: number) {
+  return rateFormatter.format(rate);
+}
+
+// "US$ 50.00": el código evita confundirlo con el sol.
+export function formatUsd(amount: number) {
+  return usdFormatter.format(amount).replace("USD", "US$");
+}
+
 const dateFormatter = new Intl.DateTimeFormat("es-PE", {
   day: "2-digit",
   month: "short",
@@ -91,4 +123,9 @@ export function formatDayMonth(date: Date) {
 
 export function formatWeekdayDayMonth(date: Date) {
   return weekdayDayMonthFormatter.format(date);
+}
+
+// Redondea un monto a céntimos (las sumas en punto flotante dejan restos como 704.7799999999999).
+export function roundMoney(value: number) {
+  return Math.round(value * 100) / 100;
 }
