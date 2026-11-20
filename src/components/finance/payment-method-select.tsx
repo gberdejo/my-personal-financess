@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { Info } from "lucide-react";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCreditCards } from "@/components/finance/credit-cards-context";
 import { PAYMENT_METHOD_LABELS, PAYMENT_METHODS } from "@/lib/labels";
@@ -21,12 +23,16 @@ export function PaymentMethodSelect({
   defaultCardId,
   legacyAccountName,
   onMethodChange,
+  compact = false,
 }: {
   id: string;
   defaultValue?: PaymentMethod | null;
   defaultCardId?: string | null;
   legacyAccountName?: string | null;
   onMethodChange?: (method: PaymentMethod) => void;
+  // Para usar dentro de un `grid grid-cols-2`: el método ocupa la primera celda (orden 1) y la
+  // tarjeta una fila completa debajo (orden 3), dejando el orden 2 para la fecha.
+  compact?: boolean;
 }) {
   const [method, setMethod] = useState<string>(defaultValue ?? "");
   const [asCharge, setAsCharge] = useState(false);
@@ -46,9 +52,14 @@ export function PaymentMethodSelect({
     onMethodChange?.(value as PaymentMethod);
   }
 
-  return (
-    <div className="flex flex-col gap-2">
-      <Label htmlFor={id}>Método de pago</Label>
+  const labelClass = compact ? "text-xs text-muted-foreground" : undefined;
+  const gap = compact ? "gap-1.5" : "gap-2";
+
+  const methodField = (
+    <>
+      <Label htmlFor={id} className={labelClass}>
+        Método de pago
+      </Label>
       <Select name="paymentMethod" defaultValue={defaultValue ?? undefined} onValueChange={handleChange} required>
         <SelectTrigger id={id} className="w-full">
           <SelectValue placeholder="¿Cómo pagaste?" />
@@ -61,52 +72,86 @@ export function PaymentMethodSelect({
           ))}
         </SelectContent>
       </Select>
+    </>
+  );
 
-      {isCard &&
-        (options.length > 0 ? (
-          <>
-            <Select name="cardId" defaultValue={cardDefault} required={isCharge}>
-              <SelectTrigger id={`${id}-card`} aria-label="Tarjeta" className="w-full">
-                <SelectValue placeholder="¿Con qué tarjeta?" />
-              </SelectTrigger>
-              <SelectContent>
-                {options.map((card) => (
-                  <SelectItem key={card.id} value={card.id}>
-                    {card.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {isLegacy && (
-              <label className="flex items-start gap-2 text-xs text-muted-foreground">
-                <input
-                  type="checkbox"
-                  name="asCharge"
-                  checked={asCharge}
-                  onChange={(event) => setAsCharge(event.target.checked)}
-                  className="mt-0.5 size-4 shrink-0 accent-primary"
-                />
-                <span>
-                  Pasar a consumo de la tarjeta: deja de restar de {legacyAccountName ?? "su cuenta"} y se paga con
-                  el periodo.
-                </span>
-              </label>
-            )}
+  const chargeHint = "Es un consumo: no sale de ninguna cuenta hasta que pagues el periodo de la tarjeta.";
+
+  const cardField =
+    isCard &&
+    (options.length > 0 ? (
+      <>
+        {compact && (
+          <div className="flex items-center gap-1">
+            <Label htmlFor={`${id}-card`} className={labelClass}>
+              Tarjeta
+            </Label>
             {isCharge && (
-              <p className="text-xs text-muted-foreground">
-                Es un consumo: no sale de ninguna cuenta hasta que pagues el periodo de la tarjeta.
-              </p>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button type="button" aria-label="Qué es un consumo" className="text-muted-foreground">
+                    <Info className="size-3.5" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="p-3 text-xs">
+                  {chargeHint}
+                </PopoverContent>
+              </Popover>
             )}
-          </>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            Para registrar consumos con tarjeta, primero agregá tu tarjeta en{" "}
-            <Link href="/dashboard/tarjetas" className="font-medium text-primary hover:underline">
-              Tarjetas
-            </Link>
-            .
-          </p>
-        ))}
+          </div>
+        )}
+        <Select name="cardId" defaultValue={cardDefault} required={isCharge}>
+          <SelectTrigger id={`${id}-card`} aria-label="Tarjeta" className="w-full">
+            <SelectValue placeholder="¿Con qué tarjeta?" />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((card) => (
+              <SelectItem key={card.id} value={card.id}>
+                {card.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {isLegacy && (
+          <label className="flex items-start gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              name="asCharge"
+              checked={asCharge}
+              onChange={(event) => setAsCharge(event.target.checked)}
+              className="mt-0.5 size-4 shrink-0 accent-primary"
+            />
+            <span>
+              Pasar a consumo de la tarjeta: deja de restar de {legacyAccountName ?? "su cuenta"} y se paga con
+              el periodo.
+            </span>
+          </label>
+        )}
+        {isCharge && !compact && <p className="text-xs text-muted-foreground">{chargeHint}</p>}
+      </>
+    ) : (
+      <p className="text-xs text-muted-foreground">
+        Para registrar consumos con tarjeta, primero agregá tu tarjeta en{" "}
+        <Link href="/dashboard/tarjetas" className="font-medium text-primary hover:underline">
+          Tarjetas
+        </Link>
+        .
+      </p>
+    ));
+
+  if (compact) {
+    return (
+      <>
+        <div className={`order-1 flex flex-col ${gap}`}>{methodField}</div>
+        {cardField && <div className={`order-3 col-span-2 flex flex-col ${gap}`}>{cardField}</div>}
+      </>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {methodField}
+      {cardField}
     </div>
   );
 }

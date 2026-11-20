@@ -4,13 +4,18 @@ import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { CreditCardsProvider } from "@/components/finance/credit-cards-context";
 import { getCreditCardOptions, getLastExchangeRate } from "@/features/cards/queries";
+import { getMarketRate } from "@/lib/exchange-rate";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   // Para el selector "¿Con qué tarjeta?" de los formularios de gasto.
-  const [cards, lastExchangeRate] = await Promise.all([getCreditCardOptions(), getLastExchangeRate()]);
+  const [cards, lastExchangeRate, marketRate] = await Promise.all([
+    getCreditCardOptions(),
+    getLastExchangeRate(),
+    getMarketRate(),
+  ]);
 
   return (
-    <CreditCardsProvider cards={cards} lastExchangeRate={lastExchangeRate}>
+    <CreditCardsProvider cards={cards} lastExchangeRate={lastExchangeRate} marketRate={marketRate}>
       <SidebarProvider>
         <AppSidebar />
         <SidebarInset>

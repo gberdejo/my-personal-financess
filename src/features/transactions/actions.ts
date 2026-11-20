@@ -14,6 +14,7 @@ import { latestExchangeRate, loadUserCards, readChargeCard, readExpenseSource } 
 import { applyCycleRate } from "@/features/cards/rate";
 import { undoCardPart } from "@/features/cards/payments";
 import { getCalendarEntry } from "@/features/schedule/queries";
+import { getMarketRate } from "@/lib/exchange-rate";
 import type { Currency, PaymentMethod, TransactionKind } from "@/generated/prisma/client";
 
 export type ActionState = { error?: string } | null;
@@ -63,14 +64,14 @@ async function maybeSaveReason(userId: string, categoryId: string, reason: strin
 type Money = { amount: number; currency: Currency; foreignAmount: number | null; exchangeRate: number | null };
 
 // Tipo de cambio para estimar en soles un consumo en dólares todavía sin pagar:
-// el del último pago en dólares o, si nunca hubo, el "TC referencial" del formulario.
-async function readReferenceRate(userId: string, formData: FormData): Promise<{ rate: number } | { error: string }> {
+// el del BCRP del día y, si no hay, el del último pago en dólares. El usuario no lo
+// ingresa: el TC real recién se pone al pagar la tarjeta.
+async function readReferenceRate(userId: string): Promise<{ rate: number } | { error: string }> {
+  const market = await getMarketRate();
+  if (market) return { rate: market.rate };
   const last = await latestExchangeRate(userId);
   if (last !== null) return { rate: last };
-  const reference = readExchangeRate(formData, "referenceRate");
-  if ("error" in reference) return reference;
-  if (reference.rate === null) return { error: "Ingresá un tipo de cambio referencial para estimar el monto en soles." };
-  return { rate: reference.rate };
+  return { error: "No se pudo obtener el tipo de cambio del BCRP para estimar los soles. Intentá de nuevo en unos minutos." };
 }
 
 export async function createTransaction(_prevState: ActionState, formData: FormData): Promise<ActionState> {
@@ -108,7 +109,7 @@ export async function createTransaction(_prevState: ActionState, formData: FormD
 
   let money: Money = { amount, currency: "PEN", foreignAmount: null, exchangeRate: null };
   if (wantsUsd) {
-    const reference = await readReferenceRate(userId, formData);
+    const reference = await readReferenceRate(userId);
     if ("error" in reference) return { error: reference.error };
     const usd = roundMoney(amount);
     money = { amount: toSoles(usd, reference.rate), currency: "USD", foreignAmount: usd, exchangeRate: null };
@@ -233,7 +234,7 @@ export async function updateTransaction(
     if (!usd || usd <= 0) return { error: "El monto debe ser mayor a 0." };
     let rate = own;
     if (rate === null) {
-      const reference = await readReferenceRate(userId, formData);
+      const reference = await readReferenceRate(userId);
       if ("error" in reference) return { error: reference.error };
       rate = reference.rate;
     }

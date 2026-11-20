@@ -131,6 +131,8 @@ export default async function TransaccionesPage({ searchParams }: { searchParams
             expenseCategories={expenseCategories}
             frequentCategoryIds={frequentCategoryIds}
             reasonSuggestions={reasonSuggestions}
+            defaultPaymentMethod={method && method !== "NONE" ? method : null}
+            defaultCardId={cardFilter?.id ?? null}
           />
         </div>
       </div>

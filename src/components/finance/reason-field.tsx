@@ -36,8 +36,10 @@ export function ReasonField({
   const showSave = canSave && query !== "" && !exactMatch;
 
   return (
-    <div className="flex flex-col gap-2">
-      <Label htmlFor={id}>Motivo (opcional)</Label>
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <Label htmlFor={id} className="text-xs text-muted-foreground">
+        Motivo (opcional)
+      </Label>
       <Input
         id={id}
         name="reason"

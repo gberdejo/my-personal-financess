@@ -4,23 +4,19 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Lock, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { CategoryCombobox } from "@/components/finance/category-combobox";
-import { ChargeCurrencyField, type ChargeCurrency } from "@/components/finance/charge-currency-field";
+import { AmountInput } from "@/components/finance/amount-input";
+import { CompactDateField } from "@/components/finance/compact-date-field";
+import { MoreDetailsFields } from "@/components/finance/more-details-fields";
+import { ResponsiveFormDialog } from "@/components/finance/responsive-form-dialog";
+import {
+  ChargeCurrencyHint,
+  ChargeCurrencyToggle,
+  type ChargeCurrency,
+} from "@/components/finance/charge-currency-field";
 import { PaymentMethodSelect } from "@/components/finance/payment-method-select";
-import { ReceiptLinksField } from "@/components/finance/receipt-links-field";
 import { ReasonField } from "@/components/finance/reason-field";
 import { useCreateCategory } from "@/components/finance/use-create-category";
 import { updateTransaction } from "@/features/transactions/actions";
@@ -153,158 +149,141 @@ export function EditTransactionDialog({
     if (reason) setReasonPrefill((prev) => ({ key: prev.key + 1, value: reason }));
   }
 
+  const showToggle = isCharge && method === "CREDIT_CARD" && !amountLock;
+
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
+    <ResponsiveFormDialog
+      open={open}
+      onOpenChange={handleOpenChange}
+      trigger={
         <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
           <Pencil className="size-4" />
           <span className="sr-only">Editar movimiento</span>
         </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Editar movimiento</DialogTitle>
-          <DialogDescription>
-            {isCharge
-              ? "Es un consumo con tarjeta: no sale de ninguna cuenta hasta que pagues su periodo."
-              : "El tipo no se puede modificar."}
-          </DialogDescription>
-        </DialogHeader>
-        <form action={formAction} className="flex flex-col gap-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="edit-tx-amount">{isUsd ? "Monto (US$)" : "Monto (S/)"}</Label>
-              {amountLock ? (
-                <p
-                  id="edit-tx-amount"
-                  className="flex h-8 items-center gap-1.5 rounded-lg border border-input bg-muted/60 px-2.5 text-sm tabular-nums"
-                >
-                  <Lock className="size-3.5 text-muted-foreground" />
-                  {currentCurrency === "USD" && currentForeignAmount !== null
-                    ? formatUsd(currentForeignAmount)
-                    : formatCurrency(currentAmount)}
-                </p>
-              ) : (
-                <Input
-                  id="edit-tx-amount"
-                  name="amount"
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  inputMode="decimal"
-                  value={amount}
-                  onChange={(event) => setAmount(event.target.value)}
-                  className="tabular-nums"
-                  required
-                />
-              )}
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="edit-tx-date">Fecha</Label>
-              <Input id="edit-tx-date" name="date" type="date" defaultValue={currentDate} required />
-            </div>
-          </div>
-          {!amountLock && !isUsd && currentCurrency === "USD" && (
-            <p className="-mt-2 text-xs text-muted-foreground tabular-nums">
-              Pasa a soles: {formatCurrency(Number(amount) || 0)}
-            </p>
-          )}
-          {amountLock && (
-            <p className="-mt-2 text-xs text-muted-foreground">
-              {AMOUNT_LOCK_LABELS[amountLock.kind]}{" "}
-              <Link href={amountLock.href} className="font-medium text-primary hover:underline">
-                Ir ahí
-              </Link>
-            </p>
-          )}
+      }
+      title="Editar movimiento"
+      description={
+        isCharge
+          ? "Es un consumo con tarjeta: no sale de ninguna cuenta hasta que pagues su periodo."
+          : "El tipo no se puede modificar."
+      }
+      action={formAction}
+      footer={
+        <Button type="submit" disabled={pending}>
+          {pending ? "Guardando…" : "Guardar"}
+        </Button>
+      }
+    >
+      <div className="flex items-center gap-3">
+        <AmountInput
+          id="edit-tx-amount"
+          prefix={isUsd ? "US$" : "S/"}
+          value={amount}
+          onChange={setAmount}
+          locked={
+            amountLock ? (
+              <>
+                <Lock className="size-4 text-muted-foreground" />
+                {currentCurrency === "USD" && currentForeignAmount !== null
+                  ? formatUsd(currentForeignAmount)
+                  : formatCurrency(currentAmount)}
+              </>
+            ) : undefined
+          }
+        />
+        {showToggle && <ChargeCurrencyToggle currency={currency} onCurrencyChange={changeCurrency} />}
+      </div>
+      {showToggle && (
+        <ChargeCurrencyHint
+          currency={currency}
+          amount={amount}
+          ownRate={currentCurrency === "USD" ? currentExchangeRate : null}
+        />
+      )}
+      {!amountLock && !isUsd && currentCurrency === "USD" && (
+        <p className="text-xs text-muted-foreground tabular-nums">Pasa a soles: {formatCurrency(Number(amount) || 0)}</p>
+      )}
+      {amountLock && (
+        <p className="text-xs text-muted-foreground">
+          {AMOUNT_LOCK_LABELS[amountLock.kind]}{" "}
+          <Link href={amountLock.href} className="font-medium text-primary hover:underline">
+            Ir ahí
+          </Link>
+        </p>
+      )}
 
-          {kind === "EXPENSE" && (
-            <PaymentMethodSelect
-              key={open ? "open" : "closed"}
-              id="edit-tx-payment-method"
-              defaultValue={currentPaymentMethod}
-              defaultCardId={currentCardId}
-              legacyAccountName={
-                isCharge ? undefined : (accounts.find((a) => a.id === currentAccountId)?.name ?? null)
-              }
-              onMethodChange={changeMethod}
-            />
-          )}
-
-          {isCharge && method === "CREDIT_CARD" && !amountLock && (
-            <ChargeCurrencyField
-              id="edit-tx-currency"
-              currency={currency}
-              onCurrencyChange={changeCurrency}
-              amount={amount}
-              ownRate={currentCurrency === "USD" ? currentExchangeRate : null}
-            />
-          )}
-
-          {needsAccount && (
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="edit-tx-account">Cuenta</Label>
-              <Select name="accountId" required>
-                <SelectTrigger id="edit-tx-account" className="w-full">
-                  <SelectValue placeholder="¿De qué cuenta salió?" />
-                </SelectTrigger>
-                <SelectContent>
-                  {accounts.map((account) => (
-                    <SelectItem key={account.id} value={account.id}>
-                      {account.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">Deja de ser un consumo de la tarjeta y resta de esa cuenta.</p>
-            </div>
-          )}
-
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="edit-tx-category">Categoría</Label>
-            <input type="hidden" name="categoryId" value={categoryId} />
-            <CategoryCombobox
-              id="edit-tx-category"
-              categories={categories}
-              value={categoryId}
-              frequentIds={frequentCategoryIds}
-              reasonSuggestions={reasonSuggestions}
-              creating={categoryPending}
-              onSelect={handleSelectCategory}
-              onCreate={(name) => createCategory(name, kind)}
-            />
-            {categoryError && <p className="text-sm text-destructive">{categoryError}</p>}
-          </div>
-
-          <ReasonField
-            key={reasonPrefill.key}
-            id="edit-tx-reason"
-            defaultValue={reasonPrefill.value}
-            suggestions={reasonSuggestions[categoryId] ?? []}
-            canSave={categoryId !== ""}
+      <div className="grid grid-cols-2 gap-3">
+        {kind === "EXPENSE" && (
+          <PaymentMethodSelect
+            key={open ? "open" : "closed"}
+            id="edit-tx-payment-method"
+            compact
+            defaultValue={currentPaymentMethod}
+            defaultCardId={currentCardId}
+            legacyAccountName={isCharge ? undefined : (accounts.find((a) => a.id === currentAccountId)?.name ?? null)}
+            onMethodChange={changeMethod}
           />
-
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="edit-tx-description">Descripción (opcional)</Label>
-            <Textarea
-              id="edit-tx-description"
-              name="description"
-              defaultValue={currentDescription ?? undefined}
-              rows={2}
-            />
+        )}
+        <div className={kind === "EXPENSE" ? "order-2" : "col-span-2"}>
+          <CompactDateField id="edit-tx-date" defaultValue={currentDate} />
+        </div>
+        {needsAccount && (
+          <div className="order-3 col-span-2 flex flex-col gap-1.5">
+            <Label htmlFor="edit-tx-account" className="text-xs text-muted-foreground">
+              Cuenta
+            </Label>
+            <Select name="accountId" required>
+              <SelectTrigger id="edit-tx-account" className="w-full">
+                <SelectValue placeholder="¿De qué cuenta salió?" />
+              </SelectTrigger>
+              <SelectContent>
+                {accounts.map((account) => (
+                  <SelectItem key={account.id} value={account.id}>
+                    {account.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">Deja de ser un consumo de la tarjeta y resta de esa cuenta.</p>
           </div>
+        )}
+      </div>
 
-          <ReceiptLinksField id="edit-tx-receipts" defaultValue={currentReceiptUrls} />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <Label htmlFor="edit-tx-category" className="text-xs text-muted-foreground">
+            Categoría
+          </Label>
+          <input type="hidden" name="categoryId" value={categoryId} />
+          <CategoryCombobox
+            id="edit-tx-category"
+            categories={categories}
+            value={categoryId}
+            frequentIds={frequentCategoryIds}
+            reasonSuggestions={reasonSuggestions}
+            creating={categoryPending}
+            onSelect={handleSelectCategory}
+            onCreate={(name) => createCategory(name, kind)}
+          />
+          {categoryError && <p className="text-sm text-destructive">{categoryError}</p>}
+        </div>
 
-          {state?.error && <p className="text-sm text-destructive">{state.error}</p>}
+        <ReasonField
+          key={reasonPrefill.key}
+          id="edit-tx-reason"
+          defaultValue={reasonPrefill.value}
+          suggestions={reasonSuggestions[categoryId] ?? []}
+          canSave={categoryId !== ""}
+        />
+      </div>
 
-          <DialogFooter>
-            <Button type="submit" disabled={pending}>
-              {pending ? "Guardando…" : "Guardar"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+      <MoreDetailsFields
+        idPrefix="edit-tx"
+        defaultDescription={currentDescription}
+        defaultReceiptUrls={currentReceiptUrls}
+      />
+
+      {state?.error && <p className="text-sm text-destructive">{state.error}</p>}
+    </ResponsiveFormDialog>
   );
 }

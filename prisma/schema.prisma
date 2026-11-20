@@ -482,3 +482,16 @@ model CalendarFeed {
   token     String   @unique
   createdAt DateTime @default(now())
 }
+
+// Última cotización conocida de una serie del BCRP (una fila por serie). Dato público y global.
+model MarketRate {
+  series        String    @id
+  rate          Decimal   @db.Decimal(10, 4)
+  // Día de la cotización (medianoche UTC).
+  date          DateTime
+  // Día de Lima de la última consulta válida (medianoche UTC).
+  checkedOn     DateTime
+  // Último intento fallido, para no reintentar a cada carga.
+  lastAttemptAt DateTime?
+  updatedAt     DateTime  @updatedAt
+}

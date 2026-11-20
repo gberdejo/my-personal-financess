@@ -16,7 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useLastExchangeRate } from "@/components/finance/credit-cards-context";
+import { useLastExchangeRate, useMarketRate } from "@/components/finance/credit-cards-context";
 import { PaymentMethodSelect } from "@/components/finance/payment-method-select";
 import {
   acknowledgeCardCycleChange,
@@ -26,10 +26,12 @@ import {
 } from "@/features/schedule/actions";
 import { payCardPart, undoCardPart } from "@/features/cards/payments";
 import type { CalendarEntry, PartView } from "@/features/schedule/queries";
-import { shiftDay, todayInLima, toUTCDateInputValue } from "@/lib/date";
+import { parseDateOnly, shiftDay, todayInLima, toUTCDateInputValue } from "@/lib/date";
 import {
   formatCurrency,
   formatDate,
+  formatDayMonth,
+  formatRate,
   formatEntryAmount,
   formatMixed,
   formatTransactionDate,
@@ -58,7 +60,6 @@ export function OccurrenceDialog({
 }) {
   const [open, setOpen] = useState(false);
   const today = toUTCDateInputValue(todayInLima());
-  const lastRate = useLastExchangeRate();
   const [accountId, setAccountId] = useState(entry.accountId ?? "");
   // Ya está en Transacciones: solo se marca, sin crear otro gasto (servicios y préstamos).
   const [markOnly, setMarkOnly] = useState(false);
@@ -198,8 +199,8 @@ export function OccurrenceDialog({
             {entry.cycleChange && (
               <CycleChangeNotice change={entry.cycleChange} pending={otherPending} onAcknowledge={acknowledge} />
             )}
-            <CardPartSection entry={entry} part="PEN" view={parts.pen} accounts={accounts} defaultRate={null} />
-            <CardPartSection entry={entry} part="USD" view={parts.usd} accounts={accounts} defaultRate={lastRate} />
+            <CardPartSection entry={entry} part="PEN" view={parts.pen} accounts={accounts} />
+            <CardPartSection entry={entry} part="USD" view={parts.usd} accounts={accounts} />
             {error && <p className="text-sm text-destructive">{error}</p>}
             <DialogFooter className="gap-2">
               {anySettled ? (
@@ -295,13 +296,11 @@ function CardPartSection({
   part,
   view,
   accounts,
-  defaultRate,
 }: {
   entry: CalendarEntry;
   part: "PEN" | "USD";
   view: PartView;
   accounts: AccountOption[];
-  defaultRate: number | null;
 }) {
   const isUsd = part === "USD";
   const money = isUsd ? formatUsd : formatCurrency;
@@ -310,6 +309,11 @@ function CardPartSection({
   const [expanded, setExpanded] = useState(false);
   const [markOnly, setMarkOnly] = useState(false);
   const [accountId, setAccountId] = useState(entry.accountId ?? "");
+  // TC controlado: arranca con el del BCRP (o tu último pago) y los botones de abajo lo cambian.
+  const market = useMarketRate();
+  const lastRate = useLastExchangeRate();
+  const [rate, setRate] = useState(String(market?.rate ?? lastRate ?? ""));
+  const marketDate = market ? parseDateOnly(market.date) : null;
   const [state, formAction, pending] = useActionState(
     payCardPart.bind(null, entry.scheduledPaymentId, entry.dueDateValue, part),
     null
@@ -375,7 +379,7 @@ function CardPartSection({
             </div>
             {isUsd && (
               <div className="flex flex-col gap-2">
-                <Label htmlFor={`pay-rate-${id}`}>Tipo de cambio</Label>
+                <Label htmlFor={`pay-rate-${id}`}>TC real (tu banco)</Label>
                 <Input
                   id={`pay-rate-${id}`}
                   name="exchangeRate"
@@ -383,7 +387,8 @@ function CardPartSection({
                   step="0.0001"
                   min="0.0001"
                   inputMode="decimal"
-                  defaultValue={defaultRate !== null ? String(defaultRate) : undefined}
+                  value={rate}
+                  onChange={(event) => setRate(event.target.value)}
                   required
                 />
               </div>
@@ -392,6 +397,35 @@ function CardPartSection({
           {!isUsd && entry.cycle?.open && (
             <p className="text-xs text-muted-foreground">
               El ciclo todavía no cerró: el monto puede subir con nuevos consumos.
+            </p>
+          )}
+          {isUsd && (market || lastRate !== null) && (
+            <p className="text-xs text-muted-foreground tabular-nums">
+              {market && marketDate && (
+                <>
+                  TC BCRP venta del {formatDayMonth(marketDate)}:{" "}
+                  <button
+                    type="button"
+                    onClick={() => setRate(String(market.rate))}
+                    className="font-medium text-primary hover:underline"
+                  >
+                    {formatRate(market.rate)}
+                  </button>
+                </>
+              )}
+              {market && marketDate && lastRate !== null && " · "}
+              {lastRate !== null && (
+                <>
+                  tu último pago:{" "}
+                  <button
+                    type="button"
+                    onClick={() => setRate(String(lastRate))}
+                    className="font-medium text-primary hover:underline"
+                  >
+                    {formatRate(lastRate)}
+                  </button>
+                </>
+              )}
             </p>
           )}
           {isUsd && (
