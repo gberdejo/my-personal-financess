@@ -14,10 +14,13 @@ export function PaymentMethodFilter({
   value,
   card,
   onChange,
+  disabled = false,
 }: {
   value: PaymentMethodFilterValue | null;
   card: CardFilter | null;
   onChange: (next: { method: PaymentMethodFilterValue | null; card: CardFilter | null }) => void;
+  // Con el tipo Ingresos: el método de pago solo existe en gastos.
+  disabled?: boolean;
 }) {
   const cards = useCreditCards();
 
@@ -30,8 +33,12 @@ export function PaymentMethodFilter({
   const selected = card ? `${CARD_PREFIX}${card}` : (value ?? ALL);
 
   return (
-    <Select value={selected} onValueChange={handleChange}>
-      <SelectTrigger className="w-44" aria-label="Filtrar por método de pago">
+    <Select value={selected} onValueChange={handleChange} disabled={disabled}>
+      <SelectTrigger
+        className="w-44"
+        aria-label="Filtrar por método de pago"
+        title={disabled ? "Solo aplica a gastos" : undefined}
+      >
         <SelectValue />
       </SelectTrigger>
       <SelectContent>

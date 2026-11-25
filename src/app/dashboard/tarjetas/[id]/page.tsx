@@ -12,12 +12,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { CardFormDialog } from "@/components/finance/card-form-dialog";
+import { CardCycleBreakdown } from "@/components/finance/card-cycle-breakdown";
 import { ChargeStatusChip } from "@/components/finance/charge-status-chip";
 import { ConfirmDeleteButton } from "@/components/finance/confirm-delete-button";
 import { EditTransactionDialog } from "@/components/finance/edit-transaction-dialog";
 import { LinkCardTransactionsDialog } from "@/components/finance/link-card-transactions-dialog";
 import { OccurrenceDialog } from "@/components/finance/occurrence-dialog";
-import { OccurrenceStatusMark, occurrenceAmountClass } from "@/components/finance/occurrence-row";
+import { OccurrenceStatusMark } from "@/components/finance/occurrence-row";
 import { getAccounts } from "@/features/accounts/queries";
 import { deleteCard } from "@/features/cards/actions";
 import { getCardDetail } from "@/features/cards/queries";
@@ -26,10 +27,7 @@ import { daysUntil, monthLabel, toUTCDateInputValue } from "@/lib/date";
 import {
   formatCountdown,
   formatCurrency,
-  formatDate,
   formatDayMonth,
-  formatEntryAmount,
-  formatMixed,
   formatRate,
   formatUsd,
   formatTransactionDate,
@@ -139,61 +137,48 @@ export default async function TarjetaPage({
           </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="flex flex-col gap-0.5">
-              <span className="text-xs text-muted-foreground">
-                Consumos del {formatDayMonth(cycle.start)} al {formatDayMonth(cycle.closing)}
-              </span>
-              <span className="text-2xl font-semibold text-expense tabular-nums">{formatMixed(cycle.spent.pen, cycle.spent.usd)}</span>
-              <span className="text-xs text-muted-foreground">
-                {charges.length === 1 ? "1 consumo" : `${charges.length} consumos`}
-                {charges.length > 0 && (paid ? " · pagados" : " · pendientes de pago")}
-              </span>
-            </div>
-
-            <div className="flex flex-col gap-2 sm:border-l sm:pl-4">
-              <span className="text-xs text-muted-foreground">
-                Pago el {formatTransactionDate(cycle.dueDate)}
-                {entry && !paid && entry.status !== "SKIPPED" && (
-                  <span className="font-heading italic"> · {formatCountdown(daysUntil(cycle.dueDate))}</span>
-                )}
-              </span>
-              {entry ? (
-                <>
-                  <div className="flex items-center gap-2">
-                    <OccurrenceStatusMark status={entry.status} />
-                    <span className="text-sm">{STATUS_LABELS[entry.status]}</span>
-                    <span className={cn("ml-auto text-lg font-semibold", occurrenceAmountClass(entry.status))}>
-                      {formatEntryAmount(entry)}
-                    </span>
-                  </div>
-                  {cycle.payment && (
-                    <p className="text-xs text-muted-foreground">
-                      Pagado el {formatDate(cycle.payment.date)}
-                      {cycle.payment.accountName && ` desde ${cycle.payment.accountName}`}
-                    </p>
-                  )}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <OccurrenceDialog entry={entry} accounts={accounts}>
-                      <Button size="sm" variant={paid ? "outline" : "default"}>
-                        {paid ? "Pagada" : entry.status === "SKIPPED" ? "Omitida" : "Pagar tarjeta"}
-                      </Button>
-                    </OccurrenceDialog>
-                    <Button asChild size="sm" variant="ghost">
-                      <Link href={`/dashboard/tarjetas/${card.id}/${entry.dueDateValue}`}>
-                        Deuda del estado de cuenta
-                        <ArrowRight />
-                      </Link>
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Este ciclo es anterior a cuando agregaste la tarjeta: su pago no está en el calendario.
-                </p>
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            <span>
+              Consumos del {formatDayMonth(cycle.start)} al {formatDayMonth(cycle.closing)}
+            </span>
+            <span className="flex items-center gap-1.5">
+              {entry && <OccurrenceStatusMark status={entry.status} className="size-3.5" />}
+              {entry && <span className="font-medium text-foreground">{STATUS_LABELS[entry.status]}</span>}
+              {entry && " · "}
+              Pago el {formatTransactionDate(cycle.dueDate)}
+              {entry && !paid && entry.status !== "SKIPPED" && (
+                <span className="font-heading italic"> · {formatCountdown(daysUntil(cycle.dueDate))}</span>
               )}
-            </div>
+            </span>
           </div>
+
+          <CardCycleBreakdown spent={cycle.spent} charges={charges} entry={entry} />
+
+          {entry ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <OccurrenceDialog entry={entry} accounts={accounts}>
+                <Button size="sm" variant={paid ? "outline" : "default"}>
+                  {paid
+                    ? "Ver pago"
+                    : entry.status === "SKIPPED"
+                      ? "Omitida"
+                      : entry.status === "PARTIAL"
+                        ? "Pagar lo que falta"
+                        : "Pagar tarjeta"}
+                </Button>
+              </OccurrenceDialog>
+              <Button asChild size="sm" variant="ghost">
+                <Link href={`/dashboard/tarjetas/${card.id}/${entry.dueDateValue}`}>
+                  Deuda del estado de cuenta
+                  <ArrowRight />
+                </Link>
+              </Button>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Este ciclo es anterior a cuando agregaste la tarjeta: su pago no está en el calendario.
+            </p>
+          )}
 
           {legacyCount > 0 && (
             <p className="flex items-start gap-1.5 rounded-md bg-muted/60 px-3 py-2.5 text-xs text-muted-foreground">
@@ -319,8 +304,10 @@ export default async function TarjetaPage({
                         {formatDayMonth(c.start)} – {formatDayMonth(c.closing)} · paga {formatDayMonth(c.dueDate)}
                       </p>
                     </div>
-                    <span className="shrink-0 text-sm font-semibold text-expense tabular-nums">
-                      {formatMixed(c.spent.pen, c.spent.usd)}
+                    {/* Soles y dólares en líneas separadas: juntos no dejan lugar al nombre del ciclo. */}
+                    <span className="flex shrink-0 flex-col items-end text-sm font-semibold text-expense tabular-nums">
+                      {(c.spent.pen > 0 || c.spent.usd <= 0) && <span>{formatCurrency(c.spent.pen)}</span>}
+                      {c.spent.usd > 0 && <span>{formatUsd(c.spent.usd)}</span>}
                     </span>
                   </Link>
                 </li>

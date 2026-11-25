@@ -42,6 +42,8 @@ export function TransactionFormDialog({
   reasonSuggestions,
   defaultPaymentMethod = null,
   defaultCardId = null,
+  defaultAccountId = null,
+  defaultKind = null,
 }: {
   accounts: AccountOption[];
   incomeCategories: CategoryOption[];
@@ -52,9 +54,14 @@ export function TransactionFormDialog({
   // Método (y tarjeta) del filtro de Transacciones: el gasto nuevo arranca con ese método.
   defaultPaymentMethod?: PaymentMethod | null;
   defaultCardId?: string | null;
+  // Cuenta del filtro de Transacciones: el movimiento nuevo arranca con esa cuenta.
+  defaultAccountId?: string | null;
+  // Tipo del filtro de Transacciones: el modal abre en esa pestaña (Gasto si no hay).
+  defaultKind?: MovementKind | null;
 }) {
   const [open, setOpen] = useState(false);
-  const [kind, setKind] = useState<MovementKind>("EXPENSE");
+  const initialKind: MovementKind = defaultKind ?? "EXPENSE";
+  const [kind, setKind] = useState<MovementKind>(initialKind);
   const [categories, setCategories] = useState({ INCOME: incomeCategories, EXPENSE: expenseCategories });
   const [categoryId, setCategoryId] = useState("");
   // Motivo a completar al elegir la categoría por uno de sus motivos.
@@ -86,7 +93,7 @@ export function TransactionFormDialog({
     if (wasPending.current && !pending && !state?.error) {
       setOpen(false);
       formRef.current?.reset();
-      setKind("EXPENSE");
+      setKind(initialKind);
       setMethod(defaultPaymentMethod);
       setMethodKey((key) => key + 1);
       setCurrency("PEN");
@@ -95,13 +102,17 @@ export function TransactionFormDialog({
       setCategoryError(null);
     }
     wasPending.current = pending;
-  }, [pending, state, setCategoryError, defaultPaymentMethod]);
+  }, [pending, state, setCategoryError, defaultPaymentMethod, initialKind]);
 
-  // El contenido del modal se desmonta al cerrarse: al abrirlo, el método vuelve al del filtro
-  // para que coincida con lo que muestra el selector.
+  // El contenido del modal se desmonta al cerrarse: al abrirlo, el tipo y el método vuelven a
+  // los del filtro para que coincidan con lo que muestran los selectores.
   function handleOpenChange(next: boolean) {
     setOpen(next);
     if (next) {
+      if (kind !== initialKind) {
+        setKind(initialKind);
+        setCategoryId("");
+      }
       setMethod(defaultPaymentMethod);
       setCurrency("PEN");
     }
@@ -179,7 +190,7 @@ export function TransactionFormDialog({
             <Label htmlFor="tx-account" className="text-xs text-muted-foreground">
               Cuenta
             </Label>
-            <Select name="accountId" required>
+            <Select name="accountId" defaultValue={defaultAccountId ?? undefined} required>
               <SelectTrigger id="tx-account" className="w-full">
                 <SelectValue placeholder="Elegí una cuenta" />
               </SelectTrigger>

@@ -17,7 +17,8 @@ export async function getTransactionsForRange(
   end: Date,
   method?: PaymentMethodFilter,
   accountId?: string,
-  card?: CardFilter
+  card?: CardFilter,
+  kind?: "INCOME" | "EXPENSE"
 ) {
   const userId = await requireUserId();
 
@@ -29,7 +30,13 @@ export async function getTransactionsForRange(
       : {};
 
   const transactions = await prisma.transaction.findMany({
-    where: { userId, date: { gte: start, lt: end }, ...methodWhere, ...(accountId ? { accountId } : {}) },
+    where: {
+      userId,
+      date: { gte: start, lt: end },
+      ...(kind ? { kind } : {}),
+      ...methodWhere,
+      ...(accountId ? { accountId } : {}),
+    },
     include: {
       account: true,
       category: true,

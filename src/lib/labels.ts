@@ -19,6 +19,15 @@ export const TRANSACTION_KIND_LABELS: Record<TransactionKind, string> = {
 // tarjeta (CARD_PAYMENT) solo los crea el pago de un periodo.
 export type MovementKind = Exclude<TransactionKind, "CARD_PAYMENT">;
 
+// Filtro `?tipo=` de Transacciones.
+export const KIND_PARAM: Record<MovementKind, string> = { INCOME: "ingresos", EXPENSE: "gastos" };
+
+export function parseKindParam(raw: string | undefined): MovementKind | null {
+  if (raw === KIND_PARAM.INCOME) return "INCOME";
+  if (raw === KIND_PARAM.EXPENSE) return "EXPENSE";
+  return null;
+}
+
 export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   CREDIT_CARD: "Tarjeta de crédito",
   DEBIT_CARD: "Tarjeta de débito",

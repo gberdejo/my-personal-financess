@@ -25,7 +25,7 @@ import { getCreditCardOptions } from "@/features/cards/queries";
 import { monthRange, parseMonthParam, shiftDay, todayInLima, toUTCDateInputValue } from "@/lib/date";
 import { getPresetRange, isPeriodPreset, periodNowInLima } from "@/lib/period";
 import { formatCurrency, formatRate, formatTransactionDateTime, formatUsd } from "@/lib/format";
-import { isPaymentMethod, NO_PAYMENT_METHOD_LABEL, PAYMENT_METHOD_LABELS } from "@/lib/labels";
+import { isPaymentMethod, NO_PAYMENT_METHOD_LABEL, parseKindParam, PAYMENT_METHOD_LABELS } from "@/lib/labels";
 import { IMPORT_SOURCES, isImportSource } from "@/lib/imports/sources";
 import { normalizeReason } from "@/lib/reason";
 
@@ -43,7 +43,19 @@ function extraDescription(reason: string | null, description: string | null) {
   return description;
 }
 
+function sumKind(transactions: { kind: string; amount: number }[], kind: string) {
+  return transactions.filter((t) => t.kind === kind).reduce((sum, t) => sum + t.amount, 0);
+}
+
+function countLabel(count: number, kind: "INCOME" | "EXPENSE" | null) {
+  const [singular, plural] =
+    kind === "INCOME" ? ["ingreso", "ingresos"] : kind === "EXPENSE" ? ["gasto", "gastos"] : ["movimiento", "movimientos"];
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
 type SearchParams = {
+  // "ingresos" o "gastos"; sin él, todos.
+  tipo?: string;
   periodo?: string;
   desde?: string;
   hasta?: string;
@@ -85,7 +97,10 @@ export default async function TransaccionesPage({ searchParams }: { searchParams
   const range =
     getPresetRange(period.preset, period.customStart, period.customEnd, now) ??
     monthRange(now.getFullYear(), now.getMonth() + 1);
-  const method = parseMethodParam(params.method);
+  const kindParam = parseKindParam(params.tipo);
+  // El método de pago solo existe en gastos: con Ingresos se ignora, y con un método el tipo es Gastos.
+  const method = kindParam === "INCOME" ? null : parseMethodParam(params.method);
+  const kind = method ? "EXPENSE" : kindParam;
   const accountParam = params.account;
 
   const [accounts, cards] = await Promise.all([getAccounts(), getCreditCardOptions()]);
@@ -95,34 +110,55 @@ export default async function TransaccionesPage({ searchParams }: { searchParams
   const filteredCard = cards.find((c) => c.id === params.tarjeta);
   const cardFilter = method === "CREDIT_CARD" && filteredCard ? { id: filteredCard.id, label: filteredCard.name } : null;
   // Cambia cuando cambian los filtros aplicados (URL), para reiniciar los que se están eligiendo.
-  const filtersKey = [period.preset, period.customStart, period.customEnd, account?.id, method, cardFilter?.id].join("|");
+  const filtersKey = [kind, period.preset, period.customStart, period.customEnd, account?.id, method, cardFilter?.id].join("|");
 
   const [transactions, incomeCategories, expenseCategories, reasonSuggestions, frequentCategoryIds] =
     await Promise.all([
-      getTransactionsForRange(range.start, range.end, method ?? undefined, account?.id, cardFilter?.id),
+      getTransactionsForRange(range.start, range.end, method ?? undefined, account?.id, cardFilter?.id, kind ?? undefined),
       getCategories("INCOME"),
       getCategories("EXPENSE"),
       getReasonSuggestions(),
       getFrequentCategoryIds(),
     ]);
 
+  const totals = {
+    income: sumKind(transactions, "INCOME"),
+    expense: sumKind(transactions, "EXPENSE"),
+    cardPayments: sumKind(transactions, "CARD_PAYMENT"),
+  };
+  // "de BCP", "con Yape", "con Visa", "sin método de pago".
+  const methodContext = cardFilter
+    ? `con ${cardFilter.label}`
+    : method === "NONE"
+      ? "sin método de pago"
+      : method
+        ? `con ${PAYMENT_METHOD_LABELS[method]}`
+        : null;
+  const filterContext = [account ? `de ${account.name}` : null, methodContext].filter(Boolean).join(" ");
+  const hasActiveFilters = kind !== null || account !== null || method !== null;
+  // Limpiar quita tipo, cuenta y método, pero conserva el periodo.
+  const clearParams = new URLSearchParams();
+  for (const key of ["periodo", "desde", "hasta", "month"] as const) {
+    const value = params[key];
+    if (value) clearParams.set(key, value);
+  }
+  const clearHref = clearParams.size ? `/dashboard/transacciones?${clearParams}` : "/dashboard/transacciones";
+  const emptyMessage = method
+    ? "No hay gastos con este método de pago en este periodo."
+    : `No hay ${kind === "INCOME" ? "ingresos" : kind === "EXPENSE" ? "gastos" : "transacciones"}${
+        account ? ` de ${account.name}` : ""
+      } en este periodo.`;
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      {/* Crear va arriba, separado de consultar. */}
+      <div className="flex items-center justify-between gap-2">
         <h1 className="font-heading text-2xl font-medium italic md:text-3xl">Transacciones</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          <TransactionsFilters
-            key={filtersKey}
-            accounts={accounts}
-            period={period}
-            account={account?.id ?? null}
-            method={method}
-            card={cardFilter?.id ?? null}
-          />
+        <div className="flex items-center gap-2">
           <Button variant="outline" asChild>
             <Link href="/dashboard/importaciones">
               <FileUp />
-              Importar
+              <span className="sr-only sm:not-sr-only">Importar</span>
             </Link>
           </Button>
           <TransactionFormDialog
@@ -131,39 +167,54 @@ export default async function TransaccionesPage({ searchParams }: { searchParams
             expenseCategories={expenseCategories}
             frequentCategoryIds={frequentCategoryIds}
             reasonSuggestions={reasonSuggestions}
+            defaultKind={kind}
             defaultPaymentMethod={method && method !== "NONE" ? method : null}
             defaultCardId={cardFilter?.id ?? null}
+            defaultAccountId={account?.id ?? null}
           />
         </div>
       </div>
 
-      {account && !method && transactions.length > 0 && (
-        <p className="text-sm text-muted-foreground">
-          {account.name} en el periodo: ingresos{" "}
-          <span className="font-medium text-income tabular-nums">
-            {formatCurrency(transactions.filter((t) => t.kind === "INCOME").reduce((sum, t) => sum + t.amount, 0))}
-          </span>{" "}
-          · salidas{" "}
-          <span className="font-medium text-expense tabular-nums">
-            {formatCurrency(transactions.filter((t) => t.kind !== "INCOME").reduce((sum, t) => sum + t.amount, 0))}
-          </span>
-          {transactions.some((t) => t.kind === "CARD_PAYMENT") && " (incluye pagos de tarjeta)"}
-        </p>
-      )}
+      <TransactionsFilters
+        key={filtersKey}
+        accounts={accounts}
+        kind={kind}
+        period={period}
+        account={account?.id ?? null}
+        method={method}
+        card={cardFilter?.id ?? null}
+      />
 
-      {method && transactions.length > 0 && (
-        <p className="text-sm text-muted-foreground">
-          {transactions.length === 1 ? "1 gasto" : `${transactions.length} gastos`}{" "}
-          {cardFilter
-            ? `con ${cardFilter.label}`
-            : method === "NONE"
-              ? "sin método de pago"
-              : `con ${PAYMENT_METHOD_LABELS[method]}`}{" "}
-          en el periodo:{" "}
-          <span className="font-medium text-expense tabular-nums">
-            {formatCurrency(transactions.reduce((sum, t) => sum + t.amount, 0))}
-          </span>
-        </p>
+      {(transactions.length > 0 || hasActiveFilters) && (
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-1 text-sm text-muted-foreground">
+          {transactions.length > 0 ? (
+            <p className="tabular-nums">
+              {countLabel(transactions.length, kind)}
+              {filterContext && ` ${filterContext}`}
+              {kind !== "EXPENSE" && (
+                <>
+                  {" · Ingresos "}
+                  <span className="font-medium text-income">{formatCurrency(totals.income)}</span>
+                </>
+              )}
+              {kind !== "INCOME" && (
+                <>
+                  {" · Gastos "}
+                  <span className="font-medium text-expense">{formatCurrency(totals.expense)}</span>
+                </>
+              )}
+              {/* Aparte: sumarlos a Gastos contaría dos veces lo consumido con tarjeta. */}
+              {!kind && totals.cardPayments > 0 && ` · Pagos de tarjeta ${formatCurrency(totals.cardPayments)}`}
+            </p>
+          ) : (
+            <span />
+          )}
+          {hasActiveFilters && (
+            <Link href={clearHref} className="font-medium text-primary hover:underline">
+              Limpiar filtros
+            </Link>
+          )}
+        </div>
       )}
 
       <Table>
@@ -182,11 +233,7 @@ export default async function TransaccionesPage({ searchParams }: { searchParams
           {transactions.length === 0 ? (
             <TableRow>
               <TableCell colSpan={7} className="text-center text-muted-foreground">
-                {method
-                  ? "No hay gastos con este método de pago en este periodo."
-                  : account
-                    ? `No hay transacciones de ${account.name} en este periodo.`
-                    : "No hay transacciones en este periodo."}
+                {emptyMessage}
               </TableCell>
             </TableRow>
           ) : (
